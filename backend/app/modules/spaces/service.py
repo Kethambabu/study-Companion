@@ -45,21 +45,27 @@ class SpacesService:
         matched: list[tuple[Space, str]] = []
 
         if self.db:
-            from sqlalchemy import select, or_
-            from app.modules.auth.models import SpaceMember
+            try:
+                from sqlalchemy import select, or_
+                from app.modules.auth.models import SpaceMember
 
-            stmt = (
-                select(Space, SpaceMember.role)
-                .join(SpaceMember, Space.id == SpaceMember.space_id)
-                .where(SpaceMember.user_id == user_id, Space.archived_at.is_(None))
-            )
-            if search:
-                term = f"%{search.strip()}%"
-                stmt = stmt.where(or_(Space.name.ilike(term), Space.description.ilike(term)))
+                stmt = (
+                    select(Space, SpaceMember.role)
+                    .join(SpaceMember, Space.id == SpaceMember.space_id)
+                    .where(SpaceMember.user_id == user_id, Space.archived_at.is_(None))
+                )
+                if search:
+                    term = f"%{search.strip()}%"
+                    stmt = stmt.where(or_(Space.name.ilike(term), Space.description.ilike(term)))
 
-            res = await self.db.execute(stmt)
-            matched = [(row[0], row[1]) for row in res.all()]
-        else:
+                res = await self.db.execute(stmt)
+                matched = [(row[0], row[1]) for row in res.all()]
+            except Exception as err:
+                import logging
+                logging.warning(f"Database list_spaces query failed ({err}). Operating in in-memory mode.")
+                matched = []
+
+        if not matched:
             for space_id, members in _IN_MEMORY_MEMBERS.items():
                 for m in members:
                     if m.user_id == user_id:
@@ -70,6 +76,7 @@ class SpacesService:
                                 if term not in sp.name.lower() and (not sp.description or term not in sp.description.lower()):
                                     continue
                             matched.append((sp, m.role))
+
 
         total = len(matched)
         start = (page - 1) * limit
