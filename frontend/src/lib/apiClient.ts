@@ -10,7 +10,16 @@ export function buildUrl(path: string): string {
     return path;
   }
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  return API_BASE_URL ? `${API_BASE_URL}${cleanPath}` : cleanPath;
+
+  let baseUrl = API_BASE_URL;
+  if (!baseUrl && typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname.endsWith(".onrender.com") && !hostname.includes("study-companion-backend")) {
+      baseUrl = "https://study-companion-backend.onrender.com";
+    }
+  }
+
+  return baseUrl ? `${baseUrl}${cleanPath}` : cleanPath;
 }
 
 export async function parseApiResponse<T>(
@@ -56,8 +65,14 @@ export async function fetchApi<T>(
     return await parseApiResponse<T>(response, fallbackError);
   } catch (err) {
     if (err instanceof Error) {
+      if (err.message === "Failed to fetch" || err.name === "TypeError") {
+        throw new Error(
+          `${fallbackError}: Unable to reach backend server. If using Render Free Tier, the backend service may be spinning up (allow 30-60s then click Try Again).`
+        );
+      }
       throw err;
     }
     throw new Error(`${fallbackError}: Network error or server unreachable.`);
   }
 }
+

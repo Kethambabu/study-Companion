@@ -75,14 +75,22 @@ app = FastAPI(
 )
 
 # CORS Middleware
-if settings.CORS_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+allowed_origins = [o for o in settings.CORS_ORIGINS if o != "*"]
+if not allowed_origins:
+    allowed_origins = [
+        "https://study-companion-2.onrender.com",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.onrender\.com|https://.*\.vercel\.app|http://localhost:\d+|http://127\.0\.0\.1:\d+",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # PRD 112: Security Headers & Request Tracing Middleware
@@ -96,9 +104,8 @@ async def security_and_tracing_middleware(request: Request, call_next):
     response.headers["x-request-id"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = "default-src 'self'"
     return response
+
 
 
 # Register Exception Handlers

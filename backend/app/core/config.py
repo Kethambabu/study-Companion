@@ -25,7 +25,12 @@ class Settings(BaseSettings):
     BACKEND_PORT: int = 8000
 
     # CORS
-    CORS_ORIGINS: list[str] = ["*"]
+    CORS_ORIGINS: list[str] = [
+        "https://study-companion-2.onrender.com",
+        "https://study-companion-backend.onrender.com",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
@@ -42,7 +47,12 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         if isinstance(v, list):
             return [str(item) for item in v]
-        return ["*"]
+        return [
+            "https://study-companion-2.onrender.com",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+
 
 
     # Supabase / Auth
