@@ -101,10 +101,16 @@ export const QuizPage: React.FC = () => {
         difficulty_preference: difficultyPref,
       });
 
-      const session = await assessmentService.startOrGetAttempt(selectedProjectId, quiz.id);
-      setActiveQuiz(session.quiz);
-      setActiveAttempt(session.attempt);
-      setCurrentQIndex(session.attempt.current_question_index || 0);
+      if (quiz.attempt) {
+        setActiveQuiz(quiz);
+        setActiveAttempt(quiz.attempt);
+        setCurrentQIndex(quiz.attempt.current_question_index || 0);
+      } else {
+        const session = await assessmentService.startOrGetAttempt(selectedProjectId, quiz.id);
+        setActiveQuiz(session.quiz);
+        setActiveAttempt(session.attempt);
+        setCurrentQIndex(session.attempt.current_question_index || 0);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to generate adaptive quiz session.";
       setError(msg);

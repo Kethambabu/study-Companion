@@ -20,6 +20,7 @@ export interface QuizItem {
   description?: string;
   target_concept_id?: string;
   questions: QuizQuestionPublicItem[];
+  attempt?: QuizAttemptItem;
   created_at: string;
 }
 

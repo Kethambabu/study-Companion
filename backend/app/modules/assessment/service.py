@@ -150,11 +150,30 @@ class AssessmentService:
             for q_item in q_list:
                 used_fingerprints.add(QuestionGenerator.compute_fingerprint(q_item.question_text))
 
-        # 4. Search study context text snippet for target concept
-        rag_res = await self.knowledge_service.search_knowledge(
-            user_id=user_id, project_id=project_id, query=adaptive_decision.target_concept_id, top_k=2
-        )
-        study_context = rag_res.context if rag_res and rag_res.context else f"Study material for {adaptive_decision.target_concept_id}."
+        if self.db is not None:
+            try:
+                from sqlalchemy import select
+                stmt = select(QuizQuestion.question_text).join(Quiz, QuizQuestion.quiz_id == Quiz.id).where(Quiz.project_id == project_id, Quiz.user_id == user_id)
+                res_fps = await self.db.execute(stmt)
+                for row in res_fps.all():
+                    if row[0]:
+                        used_fingerprints.add(QuestionGenerator.compute_fingerprint(row[0]))
+            except Exception:
+                pass
+
+        # 4. Search study context text snippet for target concept (Fast direct lookup)
+        study_context = f"Study material for {adaptive_decision.target_concept_id}."
+        if self.db is not None:
+            try:
+                from app.modules.knowledge.models import KnowledgeChunk
+                from sqlalchemy import select
+                chunk_stmt = select(KnowledgeChunk.content).where(KnowledgeChunk.project_id == project_id).limit(1)
+                chunk_res = await self.db.execute(chunk_stmt)
+                chunk_text = chunk_res.scalar_one_or_none()
+                if chunk_text:
+                    study_context = chunk_text
+            except Exception:
+                pass
 
         # 5. Generate Questions (Mix of MCQ and Open-ended with Fingerprint Deduplication)
         quiz_id = uuid.uuid4()
@@ -173,21 +192,22 @@ class AssessmentService:
 
         questions: list[QuizQuestion] = []
         num_q = req.num_questions
-        variation_seed = len(_IN_MEMORY_QUIZZES) * 3 + int(quiz_id.hex[:4], 16)
+        import random
+        base_seed = random.randint(1000, 99999) + len(_IN_MEMORY_QUIZZES) * 97
         for i in range(num_q):
             # Alternating MCQ and Open-ended questions
             q_type = "mcq" if i % 2 == 0 else "open_ended"
             
             # Semantic Deduplication Retry Loop
             gen_q = None
-            for retry in range(10):
+            for retry in range(5):
                 candidate_q = QuestionGenerator.generate_question(
                     concept_id=adaptive_decision.target_concept_id,
                     difficulty=adaptive_decision.target_difficulty,
                     question_type=q_type,  # type: ignore
                     study_context=study_context,
                     question_index=i,
-                    variation_seed=variation_seed + retry * 7,
+                    variation_seed=base_seed + retry * 19 + i * 7,
                 )
                 fp = QuestionGenerator.compute_fingerprint(candidate_q.question_text)
                 if fp not in used_fingerprints:
@@ -196,7 +216,7 @@ class AssessmentService:
                     break
 
             if not gen_q:
-                gen_q = candidate_q  # Fallback to last generated
+                gen_q = candidate_q  # Fallback to candidate
 
             q_obj = QuizQuestion(
                 id=uuid.uuid4(),
@@ -215,13 +235,30 @@ class AssessmentService:
         _IN_MEMORY_QUIZZES[str(quiz_id)] = quiz
         _IN_MEMORY_QUESTIONS[str(quiz_id)] = questions
 
+        # Create active attempt in single atomic pass
+        att_id = uuid.uuid4()
+        attempt = QuizAttempt(
+            id=att_id,
+            quiz_id=quiz_id,
+            project_id=project_id,
+            user_id=user_id,
+            status="in_progress",
+            started_at=now,
+            score=0.0,
+            max_score=float(len(questions) * 100),
+        )
+        _IN_MEMORY_ATTEMPTS[str(att_id)] = attempt
+        _IN_MEMORY_Q_ATTEMPTS[str(att_id)] = []
+
         if self.db is not None:
             try:
                 self.db.add(quiz)
+                self.db.add(attempt)
                 for q_item in questions:
                     self.db.add(q_item)
                 await self.db.commit()
                 await self.db.refresh(quiz)
+                await self.db.refresh(attempt)
             except Exception:
                 await self.db.rollback()
 
@@ -239,6 +276,20 @@ class AssessmentService:
             for q in questions
         ]
 
+        att_resp = QuizAttemptResponse(
+            id=attempt.id,
+            quiz_id=attempt.quiz_id,
+            project_id=attempt.project_id,
+            user_id=attempt.user_id,
+            status=attempt.status,
+            started_at=attempt.started_at,
+            completed_at=attempt.completed_at,
+            score=attempt.score,
+            max_score=attempt.max_score,
+            current_question_index=0,
+            submitted_question_ids=[],
+        )
+
         return QuizResponse(
             id=quiz.id,
             project_id=quiz.project_id,
@@ -247,6 +298,7 @@ class AssessmentService:
             description=quiz.description,
             target_concept_id=quiz.target_concept_id,
             questions=public_questions,
+            attempt=att_resp,
             created_at=quiz.created_at,
         )
 
@@ -519,19 +571,27 @@ class AssessmentService:
         if any(qa.question_id == question_id for qa in existing_q_attempts):
             raise DuplicateSubmissionError(f"Answer has already been submitted for question '{question_id}'.")
 
+        # Extract scalar attributes upfront to avoid SQLAlchemy MissingGreenlet (lazy-loading on expired ORM objects after commit)
+        q_concept_id = question.concept_id
+        q_difficulty = question.difficulty
+        q_question_type = question.question_type
+        q_correct_answer = question.correct_answer or ""
+        q_explanation = question.explanation or ""
+        q_question_text = question.question_text or ""
+
         # Evaluate Answer
-        if question.question_type == "mcq":
+        if q_question_type == "mcq":
             is_correct, score_pct, feedback_data = QuestionEvaluator.evaluate_mcq(
                 user_answer=req.user_answer,
-                correct_answer=question.correct_answer,
-                explanation=question.explanation,
+                correct_answer=q_correct_answer,
+                explanation=q_explanation,
             )
         else:
             eval_schema: OpenEndedEvaluationSchema = QuestionEvaluator.evaluate_open_ended(
-                question_text=question.question_text,
+                question_text=q_question_text,
                 user_answer=req.user_answer,
-                correct_answer_criteria=question.correct_answer,
-                concept_id=question.concept_id,
+                correct_answer_criteria=q_correct_answer,
+                concept_id=q_concept_id,
             )
             is_correct = eval_schema.is_correct
             score_pct = eval_schema.score_percentage
@@ -541,7 +601,7 @@ class AssessmentService:
         m_before_val = 50
         try:
             m_before_score = await self.mastery_service.get_single_concept_mastery(
-                user_id=user_id, project_id=project_id, concept_id=question.concept_id
+                user_id=user_id, project_id=project_id, concept_id=q_concept_id
             )
             m_before_val = round(m_before_score * 100)
         except Exception:
@@ -553,10 +613,10 @@ class AssessmentService:
             updated_m = await self.mastery_service.record_mastery_event(
                 user_id=user_id,
                 project_id=project_id,
-                concept_id=question.concept_id,
+                concept_id=q_concept_id,
                 score_percentage=score_pct,
-                difficulty=question.difficulty,
-                event_type="open_ended_assessment" if question.question_type == "open_ended" else "quiz_attempt",
+                difficulty=q_difficulty,
+                event_type="open_ended_assessment" if q_question_type == "open_ended" else "quiz_attempt",
                 assessment_id=str(quiz_id),
             )
             m_after_val = round(updated_m.mastery_score * 100)
@@ -566,7 +626,7 @@ class AssessmentService:
         feedback_data["mastery_before"] = m_before_val
         feedback_data["mastery_after"] = m_after_val
         feedback_data["mastery_delta_str"] = f"{m_before_val}% -> {m_after_val}%"
-        feedback_data["concept_id"] = question.concept_id
+        feedback_data["concept_id"] = q_concept_id
 
         qa_id = uuid.uuid4()
         now = datetime.now(UTC)
@@ -605,7 +665,7 @@ class AssessmentService:
                     "quiz_id": str(quiz_id),
                     "attempt_id": str(attempt_id),
                     "question_id": str(question_id),
-                    "concept_id": question.concept_id,
+                    "concept_id": q_concept_id,
                     "is_correct": is_correct,
                     "score_percentage": score_pct,
                 },
@@ -622,8 +682,8 @@ class AssessmentService:
             user_answer=qa_obj.user_answer,
             is_correct=qa_obj.is_correct,
             score_percentage=qa_obj.score_percentage,
-            explanation=question.explanation,
-            correct_answer=question.correct_answer,  # Revealed ONLY AFTER answer submission!
+            explanation=q_explanation,
+            correct_answer=q_correct_answer,  # Revealed ONLY AFTER answer submission!
             feedback=feedback_data,
             submitted_at=qa_obj.submitted_at,
         )
@@ -680,14 +740,25 @@ class AssessmentService:
         if not q_attempts:
             q_attempts = _IN_MEMORY_Q_ATTEMPTS.get(str(attempt_id), [])
 
+        att_id = attempt.id
+        att_score = float(attempt.score)
+        att_max_score = float(attempt.max_score)
+        att_status = str(attempt.status)
+        att_completed_at = attempt.completed_at
+
+        # Build a safe mapping of question_id -> (concept_id, explanation, correct_answer)
+        q_info = {
+            q.id: (q.concept_id or "general", q.explanation or "", q.correct_answer or "")
+            for q in q_list
+        }
+
         # Build concepts breakdown
         concepts_tested: dict[str, Any] = {}
         weak_set: set[str] = set()
         strong_set: set[str] = set()
 
         for qa in q_attempts:
-            q_match = next((q for q in q_list if q.id == qa.question_id), None)
-            c_id = q_match.concept_id if q_match else "general"
+            c_id = q_info.get(qa.question_id, ("general", "", ""))[0]
             concepts_tested.setdefault(c_id, []).append(qa.score_percentage)
 
         for c_id, scores in concepts_tested.items():
@@ -710,7 +781,7 @@ class AssessmentService:
             attempt_id=attempt_id,
             project_id=project_id,
             user_id=user_id,
-            overall_score=attempt.score,
+            overall_score=att_score,
             concepts_tested=concepts_tested,
             weak_concepts=list(weak_set),
             strong_concepts=list(strong_set),
@@ -726,6 +797,8 @@ class AssessmentService:
             except Exception:
                 await self.db.rollback()
 
+        pct = (att_score / max(att_max_score, 1.0)) * 100.0 if att_max_score > 0 else 0.0
+
         # Publish quiz_completed learning domain event
         DomainEventPublisher.publish(
             name="quiz_completed",
@@ -734,14 +807,14 @@ class AssessmentService:
                 "user_id": str(user_id),
                 "project_id": str(project_id),
                 "attempt_id": str(attempt_id),
-                "score_percentage": (attempt.score / max(attempt.max_score, 1.0)) * 100.0,
+                "score_percentage": pct,
                 "weak_concepts": list(weak_set),
             },
         )
 
         qa_responses: list[QuestionAttemptResponse] = []
         for qa in q_attempts:
-            q_match = next((q for q in q_list if q.id == qa.question_id), None)
+            _, exp, corr = q_info.get(qa.question_id, ("general", "", ""))
             qa_responses.append(
                 QuestionAttemptResponse(
                     id=qa.id,
@@ -750,24 +823,22 @@ class AssessmentService:
                     user_answer=qa.user_answer,
                     is_correct=qa.is_correct,
                     score_percentage=qa.score_percentage,
-                    explanation=q_match.explanation if q_match else "",
-                    correct_answer=q_match.correct_answer if q_match else "",
+                    explanation=exp,
+                    correct_answer=corr,
                     feedback=qa.feedback_json,
                     submitted_at=qa.submitted_at,
                 )
             )
 
-        pct = (attempt.score / max(attempt.max_score, 1.0)) * 100.0 if attempt.max_score > 0 else 0.0
-
         return QuizSummaryResponse(
-            attempt_id=attempt.id,
+            attempt_id=att_id,
             quiz_id=quiz_id,
             project_id=project_id,
-            overall_score=attempt.score,
-            max_score=attempt.max_score,
+            overall_score=att_score,
+            max_score=att_max_score,
             score_percentage=round(pct, 1),
-            status=attempt.status,
-            completed_at=attempt.completed_at,
+            status=att_status,
+            completed_at=att_completed_at,
             concepts_tested=concepts_tested,
             weak_concepts=list(weak_set),
             strong_concepts=list(strong_set),

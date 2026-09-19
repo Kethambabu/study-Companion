@@ -69,17 +69,6 @@ class QuizQuestionFullResponse(QuizQuestionPublicResponse):
     explanation: str
 
 
-class QuizResponse(BaseModel):
-    id: uuid.UUID
-    project_id: uuid.UUID
-    user_id: uuid.UUID
-    title: str
-    description: str | None = None
-    target_concept_id: str | None = None
-    questions: list[QuizQuestionPublicResponse]
-    created_at: datetime
-
-
 class QuizAttemptResponse(BaseModel):
     id: uuid.UUID
     quiz_id: uuid.UUID
@@ -92,6 +81,18 @@ class QuizAttemptResponse(BaseModel):
     max_score: float
     current_question_index: int = 0
     submitted_question_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class QuizResponse(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    user_id: uuid.UUID
+    title: str
+    description: str | None = None
+    target_concept_id: str | None = None
+    questions: list[QuizQuestionPublicResponse]
+    attempt: QuizAttemptResponse | None = None
+    created_at: datetime
 
 
 class SubmitAnswerRequest(BaseModel):

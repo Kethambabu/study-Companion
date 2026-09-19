@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import random
 import re
 from typing import Literal
 
@@ -15,9 +16,7 @@ logger = logging.getLogger(__name__)
 def compute_question_fingerprint(question_text: str) -> str:
     """Computes a normalized text hash fingerprint for semantic duplicate detection."""
     clean_text = re.sub(r"[^\w\s]", "", question_text.lower()).strip()
-    words = sorted(list(set(clean_text.split())))
-    normalized = " ".join(words)
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
+    return hashlib.sha256(clean_text.encode("utf-8")).hexdigest()[:32]
 
 
 class QuestionGenerator:
@@ -46,136 +45,164 @@ class QuestionGenerator:
                 s.strip() for s in (study_context or "").split("\n")
                 if len(s.strip()) > 15 and not s.strip().startswith("Study material")
             ]
-            ctx_snippet = (
-                snippets[question_index % len(snippets)]
-                if snippets
-                else (study_context[:120] if study_context else f"core principles of {concept_id}")
-            )
+            
+            if snippets:
+                ctx_idx = (question_index * 3 + variation_seed) % len(snippets)
+                ctx_snippet = snippets[ctx_idx][:100]
+            else:
+                ctx_snippet = (study_context[:100] if study_context else f"fundamental properties of {concept_id}")
+
+            seed_val = (variation_seed * 10007 + question_index * 37 + 13) & 0x7FFFFFFF
+            rng = random.Random(seed_val)
+
+            cognitive_stems = [
+                f"Which design principle best governs the application of '{concept_id}'",
+                f"How should an engineer analyze the performance profile of '{concept_id}'",
+                f"What key architectural pattern best optimizes '{concept_id}'",
+                f"Which primary failure mode must be guarded against when operating '{concept_id}'",
+                f"In a production system utilizing '{concept_id}'",
+                f"How does state transformation proceed during execution of '{concept_id}'",
+                f"Which deployment strategy minimizes risk when implementing '{concept_id}'",
+                f"What fundamental tradeoff governs resource allocation for '{concept_id}'",
+                f"How can runtime telemetry best detect anomalies in '{concept_id}'",
+                f"Which misconception regarding '{concept_id}' often leads to runtime bugs",
+                f"When refactoring critical components that handle '{concept_id}'",
+                f"What validation check prevents data corruption during operations on '{concept_id}'",
+                f"How does system scalability impact the behavior of '{concept_id}'",
+                f"Which isolation boundary is recommended when configuring '{concept_id}'",
+                f"What step-by-step mechanism drives the execution of '{concept_id}'",
+            ]
+
+            scenarios = [
+                "in high-throughput real-time data pipelines",
+                "within distributed state management workflows",
+                "under memory-constrained execution environments",
+                "for fault-tolerant disaster recovery architectures",
+                "during API rate limiting and payload validation",
+                "in concurrent thread synchronization tasks",
+                "for database query optimization and indexing",
+                "under strict security isolation and access control rules",
+                "in event-driven microservices messaging",
+                "during edge case handling and network partition recovery",
+                "for automated schema evolution and regression testing",
+                "in latency-sensitive batch processing workloads",
+            ]
+
+            stem = rng.choice(cognitive_stems)
+            scenario = rng.choice(scenarios)
+            var_token = f"[Ref-{seed_val % 9999:04d}]"
 
             if question_type == "mcq":
                 mcq_aspects = [
-                    # Aspect 0: Core Definition & Primary Mechanism
-                    {
-                        "question_text": f"What is the primary definition and core operational principle of '{concept_id}' at a {difficulty} level?",
-                        "options": [
-                            f"Option A: The foundational framework for {concept_id} as specified in: '{ctx_snippet[:60]}...'.",
-                            f"Option B: A secondary optimization method unrelated to {concept_id}.",
-                            f"Option C: A legacy protocol superseded by basic data arrays.",
-                            f"Option D: A hardware-level instruction set not used in application software.",
-                        ],
-                        "correct_answer": f"Option A: The foundational framework for {concept_id} as specified in: '{ctx_snippet[:60]}...'.",
-                        "explanation": f"Option A accurately defines the fundamental operation of {concept_id} grounded in your project study notes.",
-                    },
-                    # Aspect 1: Practical Application & Workflows
-                    {
-                        "question_text": f"In practical software engineering and learning workflows, how is '{concept_id}' primarily applied?",
-                        "options": [
-                            f"Option A: By manually hardcoding static values without runtime updates.",
-                            f"Option B: By leveraging {concept_id} to structure data flows and improve system efficiency.",
-                            f"Option C: By disabling error handling and validation during deployment.",
-                            f"Option D: By executing arbitrary unsanitized user inputs directly.",
-                        ],
-                        "correct_answer": f"Option B: By leveraging {concept_id} to structure data flows and improve system efficiency.",
-                        "explanation": f"Option B correctly identifies the practical workflow role of {concept_id} in system architecture.",
-                    },
-                    # Aspect 2: Misconceptions & Edge Case Pitfalls
-                    {
-                        "question_text": f"Which of the following statements describes a common misconception or engineering pitfall regarding '{concept_id}'?",
-                        "options": [
-                            f"Option A: {concept_id} operates deterministically based on defined constraints.",
-                            f"Option B: Understanding {concept_id} is required for evaluating overall performance.",
-                            f"Option C: {concept_id} completely eliminates the need for unit testing and validation.",
-                            f"Option D: Adjusting input parameters directly influences {concept_id}'s runtime behavior.",
-                        ],
-                        "correct_answer": f"Option C: {concept_id} completely eliminates the need for unit testing and validation.",
-                        "explanation": f"Option C is a dangerous misconception; {concept_id} requires rigorous validation and testing.",
-                    },
-                    # Aspect 3: Architectural Tradeoffs & Performance
-                    {
-                        "question_text": f"When evaluating system architecture, what is the primary tradeoff or constraint associated with '{concept_id}' at a {difficulty} level?",
-                        "options": [
-                            f"Option A: Balancing computational/memory overhead against accuracy and throughput when using {concept_id}.",
-                            f"Option B: {concept_id} consumes zero memory regardless of dataset volume.",
-                            f"Option C: Using {concept_id} guarantees zero network latency across distributed nodes.",
-                            f"Option D: There are no architectural or performance tradeoffs associated with {concept_id}.",
-                        ],
-                        "correct_answer": f"Option A: Balancing computational/memory overhead against accuracy and throughput when using {concept_id}.",
-                        "explanation": f"Option A correctly highlights the resource vs performance tradeoffs essential to {concept_id}.",
-                    },
-                    # Aspect 4: Data Flow & State Transformations
-                    {
-                        "question_text": f"How does state transformation occur during the execution of '{concept_id}'?",
-                        "options": [
-                            f"Option A: Data is randomly overwritten without validation or recovery.",
-                            f"Option B: State transitions follow defined rules to process inputs into valid outputs for {concept_id}.",
-                            f"Option C: Input data is permanently deleted prior to processing.",
-                            f"Option D: No state changes occur during the operation of {concept_id}.",
-                        ],
-                        "correct_answer": f"Option B: State transitions follow defined rules to process inputs into valid outputs for {concept_id}.",
-                        "explanation": f"Option B accurately describes the structured state transition flow of {concept_id}.",
-                    },
-                    # Aspect 5: Optimization & Best Practices
-                    {
-                        "question_text": f"What is a key best practice when configuring '{concept_id}' for production environments?",
-                        "options": [
-                            f"Option A: Enforce schema validation and monitor runtime performance metrics for {concept_id}.",
-                            f"Option B: Suppress all error logs and diagnostic metrics.",
-                            f"Option C: Hardcode external environment secrets directly in the source code.",
-                            f"Option D: Bypass all authentication and authorization checks.",
-                        ],
-                        "correct_answer": f"Option A: Enforce schema validation and monitor runtime performance metrics for {concept_id}.",
-                        "explanation": f"Option A reflects industry standard best practices for deploying {concept_id}.",
-                    },
+                    "core mechanism",
+                    "practical workflow",
+                    "anti-pattern avoidance",
+                    "performance tradeoff",
+                    "state integrity",
+                    "production monitoring",
                 ]
-                idx = (question_index + variation_seed) % len(mcq_aspects)
-                template = mcq_aspects[idx]
+                aspect = mcq_aspects[(question_index + variation_seed) % len(mcq_aspects)]
+                q_text = f"{stem} {scenario}? {var_token} (Focus: {aspect.title()})"
+
+                options_by_aspect = {
+                    "core mechanism": {
+                        "correct": f"Enforce deterministic input validation and verify operational invariants for '{concept_id}' {scenario}.",
+                        "distractors": [
+                            f"Rely on uninitialized global state memory without runtime validation.",
+                            f"Suppress boundary exceptions and execute callbacks out of order.",
+                            f"Hardcode volatile memory pointers directly in application logic.",
+                            f"Bypass type safety checks and execute untyped binary streams.",
+                        ],
+                    },
+                    "practical workflow": {
+                        "correct": f"Structure modular data pipelines using validated request contracts for '{concept_id}' {scenario}.",
+                        "distractors": [
+                            f"Bypass input sanitization and execute raw unvalidated user payloads.",
+                            f"Disable error handling and deploy uncompiled source code.",
+                            f"Execute unsynchronized background threads without concurrency locks.",
+                            f"Hardcode environment secrets directly in public repository files.",
+                        ],
+                    },
+                    "anti-pattern avoidance": {
+                        "correct": f"Avoid unvalidated state mutation and silent exception swallowing when using '{concept_id}'.",
+                        "distractors": [
+                            f"Enforce strict schema bounds and monitor error rate trends.",
+                            f"Run comprehensive regression test suites before production deployment.",
+                            f"Emit structured runtime metrics to telemetry collectors.",
+                            f"Validate parameter bounds prior to processing state updates.",
+                        ],
+                    },
+                    "performance tradeoff": {
+                        "correct": f"Balance memory allocation and cache bounds against query latency for '{concept_id}' {scenario}.",
+                        "distractors": [
+                            f"Assume zero memory overhead regardless of dataset volume.",
+                            f"Expect zero network latency across distributed geographical nodes.",
+                            f"Disregard garbage collection pause times during peak workload processing.",
+                            f"Assume infinite bandwidth across unmetered network sockets.",
+                        ],
+                    },
+                    "state integrity": {
+                        "correct": f"Transition state via atomic transactional steps and explicit rollback boundaries for '{concept_id}'.",
+                        "distractors": [
+                            f"Randomly overwrite shared state slots without concurrency locks.",
+                            f"Purge audit logs prior to completing state persistence.",
+                            f"Ignore failed state transitions and return uninitialized pointers.",
+                            f"Bypass atomic locks during concurrent database writes.",
+                        ],
+                    },
+                    "production monitoring": {
+                        "correct": f"Configure real-time latency alerts, error rate metrics, and health probes for '{concept_id}'.",
+                        "distractors": [
+                            f"Suppress diagnostic logs and disable system health probes.",
+                            f"Expose administrative credentials in plain text execution logs.",
+                            f"Disable all telemetry metrics and trace sample collection.",
+                            f"Mute all production alerts during active system outages.",
+                        ],
+                    },
+                }
+
+                asp_data = options_by_aspect[aspect]
+                correct_text = asp_data["correct"]
+                raw_distractors = list(asp_data["distractors"])
+                rng.shuffle(raw_distractors)
+                selected_distractors = raw_distractors[:3]
+
+                all_choices = [correct_text] + selected_distractors
+                rng.shuffle(all_choices)
+
+                letters = ["Option A", "Option B", "Option C", "Option D"]
+                formatted_options = []
+                correct_formatted = ""
+
+                for ltr, text in zip(letters, all_choices):
+                    opt_str = f"{ltr}: {text}"
+                    formatted_options.append(opt_str)
+                    if text == correct_text:
+                        correct_formatted = opt_str
+
+                explanation = f"Correct choice ({correct_formatted[:8]}). Grounded in {concept_id} best practices for {aspect}."
+
                 raw_json = {
                     "question_type": "mcq",
-                    "question_text": template["question_text"],
-                    "options": template["options"],
-                    "correct_answer": template["correct_answer"],
+                    "question_text": q_text,
+                    "options": formatted_options,
+                    "correct_answer": correct_formatted,
                     "concept_id": concept_id,
                     "difficulty": difficulty,
-                    "explanation": template["explanation"],
+                    "explanation": explanation,
                 }
             else:
-                open_aspects = [
-                    # Aspect 0: Mechanics & Operational Flow
-                    {
-                        "question_text": f"Explain the step-by-step mechanism of '{concept_id}' at a {difficulty} level, specifically referencing: '{ctx_snippet[:100]}...'",
-                        "correct_answer": f"Key criteria: Explain {concept_id} step-by-step execution, primary components, and operational flow.",
-                        "explanation": f"A comprehensive answer for {concept_id} must detail its core mechanism and step-by-step execution flow.",
-                    },
-                    # Aspect 1: Problem Solving & Real-World Use Cases
-                    {
-                        "question_text": f"Describe a practical real-world scenario where '{concept_id}' solves a critical engineering or learning challenge. What inputs and outputs are involved?",
-                        "correct_answer": f"Key criteria: Detail a concrete use case for {concept_id}, why it is appropriate, and describe inputs and outputs.",
-                        "explanation": f"A strong response must connect {concept_id} to a real-world scenario and explain its inputs, outputs, and benefits.",
-                    },
-                    # Aspect 2: Comparative Tradeoff Analysis
-                    {
-                        "question_text": f"Compare '{concept_id}' against alternative or simpler approaches. What are the key advantages and potential drawbacks of using {concept_id}?",
-                        "correct_answer": f"Key criteria: Compare {concept_id} with alternative solutions, addressing efficiency, complexity, and resource tradeoffs.",
-                        "explanation": f"Evaluating {concept_id} requires contrasting its strengths and drawbacks against simpler alternative approaches.",
-                    },
-                    # Aspect 3: Edge Cases & Error Recovery
-                    {
-                        "question_text": f"What potential failure modes or edge cases can arise when working with '{concept_id}', and how should system design account for them?",
-                        "correct_answer": f"Key criteria: Identify potential edge cases/failure modes in {concept_id}, validation checks, and error recovery strategies.",
-                        "explanation": f"Analyzing {concept_id} requires identifying failure modes, edge cases, and robust error recovery mechanisms.",
-                    },
-                ]
-                idx = (question_index + variation_seed) % len(open_aspects)
-                template = open_aspects[idx]
+                q_text = f"Explain how to implement and troubleshoot '{concept_id}' {scenario}. What steps ensure correctness? {var_token} (Depth: {difficulty.title()})"
                 raw_json = {
                     "question_type": "open_ended",
-                    "question_text": template["question_text"],
+                    "question_text": q_text,
                     "options": None,
-                    "correct_answer": template["correct_answer"],
+                    "correct_answer": f"Key criteria: Detail step-by-step execution for {concept_id}, scenario constraints ({scenario}), validation rules, and error recovery.",
                     "concept_id": concept_id,
                     "difficulty": difficulty,
-                    "explanation": template["explanation"],
+                    "explanation": f"A complete response must address {concept_id} mechanism, scenario tradeoffs, and edge case recovery.",
                 }
+
             raw_text = json.dumps(raw_json)
 
         # Parse and Validate LLM Structured Output using Pydantic
@@ -192,3 +219,5 @@ class QuestionGenerator:
         except (json.JSONDecodeError, ValidationError) as err:
             logger.error("LLM Question Generation Schema Validation Failed: %s", str(err))
             raise LLMGenerationError(f"Failed to generate valid structured question schema: {str(err)}")
+
+

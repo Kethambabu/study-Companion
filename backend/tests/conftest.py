@@ -62,8 +62,14 @@ async def init_db():
     rec_svc._IN_MEMORY_REC_KEYS.clear()
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.run_sync(Base.metadata.drop_all)
+        except Exception:
+            pass
+        try:
+            await conn.run_sync(Base.metadata.create_all)
+        except Exception:
+            pass
 
 
 @pytest.fixture

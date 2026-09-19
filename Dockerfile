@@ -12,10 +12,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# Copy requirements supporting either root context or backend context
+COPY requirements.txt* backend/requirements.txt* /app/temp_req/
+RUN if [ -f /app/temp_req/requirements.txt ]; then \
+        pip install --no-cache-dir -r /app/temp_req/requirements.txt; \
+    elif [ -f /app/temp_req/backend/requirements.txt ]; then \
+        pip install --no-cache-dir -r /app/temp_req/backend/requirements.txt; \
+    fi && rm -rf /app/temp_req
 
-COPY backend /app
+# Copy application source code supporting either context
+COPY . /app/temp_src
+RUN if [ -d /app/temp_src/backend/app ]; then \
+        cp -r /app/temp_src/backend/* /app/; \
+    else \
+        cp -r /app/temp_src/* /app/; \
+    fi && rm -rf /app/temp_src
 
 EXPOSE 8000
 
