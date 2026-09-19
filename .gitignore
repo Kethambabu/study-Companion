@@ -50,6 +50,27 @@ dist-ssr/
 chroma_db/
 memdb*
 
+# Internal Audit Documentation (Keep README.md and docs/)
+BACKEND_*.md
+FRONTEND_*.md
+*.txt
+file
+
+# Temporary Scratch & Debug Test Scripts (Keep unit test suite in backend/tests/ and test_learning_loop_e2e.py)
+backend/scratch_*.py
+backend/debug_*.py
+backend/clean_*.py
+backend/check_*.py
+backend/reset_*.py
+backend/test_5_tutor_inputs.py
+backend/test_all_6_tutor_cases.py
+backend/test_api_auth.py
+backend/test_db_*.py
+backend/test_groq_*.py
+backend/test_pg_direct.py
+backend/test_student_flow.py
+backend/file
+
 # IDE & OS Files
 .vscode/
 .idea/
