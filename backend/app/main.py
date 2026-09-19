@@ -75,22 +75,27 @@ app = FastAPI(
 )
 
 # CORS Middleware
-allowed_origins = [o for o in settings.CORS_ORIGINS if o != "*"]
-if not allowed_origins:
-    allowed_origins = [
-        "https://study-companion-2.onrender.com",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ]
+allowed_origins = [
+    "https://study-companion-2.onrender.com",
+    "https://study-companion-1-q4k8.onrender.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+if settings.CORS_ORIGINS and isinstance(settings.CORS_ORIGINS, list):
+    for orig in settings.CORS_ORIGINS:
+        if orig and orig != "*" and orig not in allowed_origins:
+            allowed_origins.append(orig)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r".*",
+    allow_origin_regex=r"https://.*\.onrender\.com|https://.*\.vercel\.app|http://localhost:\d+|http://127\.0\.0\.1:\d+",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "User-Agent", "DNT", "Cache-Control", "X-Mx-ReqToken", "Keep-Alive", "X-Requested-With", "If-Modified-Since", "x-request-id"],
+    expose_headers=["x-request-id"],
 )
+
 
 
 
