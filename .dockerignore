@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.local
+*.env
+node_modules
+venv
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+dist
+*.log

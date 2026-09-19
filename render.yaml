@@ -1,0 +1,20 @@
+# Render Infrastructure Blueprint Specification
+services:
+  - type: web
+    name: study-companion-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    region: singapore
+    plan: free
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: '["https://*.vercel.app","http://localhost:5173"]'
