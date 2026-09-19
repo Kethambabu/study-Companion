@@ -19,8 +19,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -41,6 +41,8 @@ yarn-error.log*
 dist/
 dist-ssr/
 *.local
+!frontend/src/lib/
+
 
 # Databases & Vector Stores
 *.sqlite
