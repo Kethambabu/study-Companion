@@ -1,0 +1,9 @@
+[
+  {
+    "weak_concepts": ["raft_consensus"],
+    "mastery_list": [
+      {"concept_id": "raft_consensus", "mastery_score": 0.42, "status": "requiring_attention"}
+    ],
+    "expected_action": "practice_concept"
+  }
+]

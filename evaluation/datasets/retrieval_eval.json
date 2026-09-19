@@ -1,0 +1,17 @@
+[
+  {
+    "query": "leader election mechanism",
+    "chunks": [
+      {
+        "content": "Raft manages leader election using randomized timers and term counters.",
+        "section_title": "Leader Election",
+        "expected_relevant": true
+      },
+      {
+        "content": "Database indexing speeds up SQL SELECT queries using B-Tree index structures.",
+        "section_title": "Database Optimization",
+        "expected_relevant": false
+      }
+    ]
+  }
+]

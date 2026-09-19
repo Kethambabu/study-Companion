@@ -1,0 +1,14 @@
+[
+  {
+    "concept_id": "consensus_protocols",
+    "difficulty": "intermediate",
+    "question_type": "mcq",
+    "expected_keys": ["question_type", "question_text", "options", "correct_answer", "concept_id", "difficulty", "explanation"]
+  },
+  {
+    "concept_id": "b_tree_indexes",
+    "difficulty": "advanced",
+    "question_type": "open_ended",
+    "expected_keys": ["question_type", "question_text", "correct_answer", "concept_id", "difficulty", "explanation"]
+  }
+]
