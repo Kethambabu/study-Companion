@@ -1,5 +1,5 @@
-import { ApiResponse } from "@/types/api";
 import { authService } from "./authService";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface CitationItem {
   citation_id: string;
@@ -58,13 +58,13 @@ export interface PaginatedKnowledgeChunks {
 
 export const knowledgeService = {
   async indexMaterial(projectId: string, materialId: string): Promise<{ chunks_indexed: number }> {
-    const response = await fetch(`/api/v1/projects/${projectId}/knowledge/index/${materialId}`, {
+    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/knowledge/index/${materialId}`), {
       method: "POST",
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<{ chunks_indexed: number }> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<{ chunks_indexed: number }>(response, "Failed to index material knowledge");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to index material knowledge.");
     }
     return result.data;
@@ -77,7 +77,7 @@ export const knowledgeService = {
     threshold = 0.05,
     materialId?: string
   ): Promise<RetrievalSearchResult> {
-    const response = await fetch(`/api/v1/projects/${projectId}/knowledge/search`, {
+    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/knowledge/search`), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -86,20 +86,20 @@ export const knowledgeService = {
       body: JSON.stringify({ query, top_k: topK, threshold, material_id: materialId || null }),
     });
 
-    const result: ApiResponse<RetrievalSearchResult> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<RetrievalSearchResult>(response, "Failed to execute knowledge search query");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to execute knowledge search query.");
     }
     return result.data;
   },
 
   async listConcepts(projectId: string): Promise<ConceptItem[]> {
-    const response = await fetch(`/api/v1/projects/${projectId}/knowledge/concepts`, {
+    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/knowledge/concepts`), {
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<ConceptItem[]> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<ConceptItem[]>(response, "Failed to fetch project concepts");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch project concepts.");
     }
     return result.data;
@@ -111,14 +111,15 @@ export const knowledgeService = {
     limit = 50
   ): Promise<PaginatedKnowledgeChunks> {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    const response = await fetch(`/api/v1/projects/${projectId}/knowledge/chunks?${params.toString()}`, {
+    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/knowledge/chunks?${params.toString()}`), {
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<PaginatedKnowledgeChunks> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<PaginatedKnowledgeChunks>(response, "Failed to fetch knowledge chunks");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch knowledge chunks.");
     }
     return result.data;
   },
 };
+

@@ -1,6 +1,6 @@
-import { ApiResponse } from "@/types/api";
 import { authService } from "./authService";
 import { fetchWithCache, invalidateCache } from "./apiCache";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface QuizQuestionPublicItem {
   id: string;
@@ -100,7 +100,7 @@ export interface LearningProgressItem {
 export const assessmentService = {
   createQuiz: async (projectId: string, req: CreateQuizRequest = {}): Promise<QuizItem> => {
     invalidateCache(`quizzes:${projectId}`);
-    const res = await fetch(`/api/v1/projects/${projectId}/quizzes`, {
+    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/quizzes`), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -108,8 +108,8 @@ export const assessmentService = {
       },
       body: JSON.stringify(req),
     });
-    const result: ApiResponse<QuizItem> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<QuizItem>(res, "Failed to create quiz session");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to create quiz session.");
     }
     return result.data;
@@ -117,11 +117,11 @@ export const assessmentService = {
 
   listQuizzes: async (projectId: string): Promise<QuizItem[]> => {
     return fetchWithCache(`quizzes:${projectId}`, async () => {
-      const res = await fetch(`/api/v1/projects/${projectId}/quizzes`, {
+      const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/quizzes`), {
         headers: { ...authService.getAuthHeaders() },
       });
-      const result: ApiResponse<QuizItem[]> = await res.json();
-      if (!res.ok || !result.success || !result.data) {
+      const result = await parseApiResponse<QuizItem[]>(res, "Failed to list quizzes");
+      if (!result.success || !result.data) {
         throw new Error(result.error?.message || "Failed to list quizzes.");
       }
       return result.data;
@@ -132,12 +132,12 @@ export const assessmentService = {
     projectId: string,
     quizId: string
   ): Promise<{ quiz: QuizItem; attempt: QuizAttemptItem }> => {
-    const res = await fetch(`/api/v1/projects/${projectId}/quizzes/${quizId}/attempts`, {
+    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/quizzes/${quizId}/attempts`), {
       method: "POST",
       headers: { ...authService.getAuthHeaders() },
     });
-    const result: ApiResponse<{ quiz: QuizItem; attempt: QuizAttemptItem }> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<{ quiz: QuizItem; attempt: QuizAttemptItem }>(res, "Failed to start or resume quiz attempt");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to start or resume quiz attempt.");
     }
     return result.data;
@@ -151,7 +151,7 @@ export const assessmentService = {
     userAnswer: string
   ): Promise<QuestionAttemptResultItem> => {
     const res = await fetch(
-      `/api/v1/projects/${projectId}/quizzes/${quizId}/attempts/${attemptId}/questions/${questionId}/submit`,
+      buildUrl(`/api/v1/projects/${projectId}/quizzes/${quizId}/attempts/${attemptId}/questions/${questionId}/submit`),
       {
         method: "POST",
         headers: {
@@ -161,8 +161,8 @@ export const assessmentService = {
         body: JSON.stringify({ user_answer: userAnswer }),
       }
     );
-    const result: ApiResponse<QuestionAttemptResultItem> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<QuestionAttemptResultItem>(res, "Failed to submit question answer");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to submit question answer.");
     }
     return result.data;
@@ -176,14 +176,14 @@ export const assessmentService = {
     invalidateCache(`growth:${projectId}`);
     invalidateCache(`quizzes:${projectId}`);
     const res = await fetch(
-      `/api/v1/projects/${projectId}/quizzes/${quizId}/attempts/${attemptId}/finish`,
+      buildUrl(`/api/v1/projects/${projectId}/quizzes/${quizId}/attempts/${attemptId}/finish`),
       {
         method: "POST",
         headers: { ...authService.getAuthHeaders() },
       }
     );
-    const result: ApiResponse<QuizSummaryItem> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<QuizSummaryItem>(res, "Failed to finalize quiz attempt");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to finalize quiz attempt.");
     }
     return result.data;
@@ -195,26 +195,27 @@ export const assessmentService = {
     attemptId: string
   ): Promise<QuizSummaryItem> => {
     const res = await fetch(
-      `/api/v1/projects/${projectId}/quizzes/${quizId}/attempts/${attemptId}/summary`,
+      buildUrl(`/api/v1/projects/${projectId}/quizzes/${quizId}/attempts/${attemptId}/summary`),
       {
         headers: { ...authService.getAuthHeaders() },
       }
     );
-    const result: ApiResponse<QuizSummaryItem> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<QuizSummaryItem>(res, "Failed to fetch quiz summary");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch quiz summary.");
     }
     return result.data;
   },
 
   getLearningProgress: async (projectId: string): Promise<LearningProgressItem> => {
-    const res = await fetch(`/api/v1/projects/${projectId}/quizzes/learning-progress`, {
+    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/quizzes/learning-progress`), {
       headers: { ...authService.getAuthHeaders() },
     });
-    const result: ApiResponse<LearningProgressItem> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<LearningProgressItem>(res, "Failed to fetch learning progress");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch learning progress.");
     }
     return result.data;
   },
 };
+

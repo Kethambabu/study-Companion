@@ -174,33 +174,46 @@ export interface GlobalAnalytics {
   top_active_projects: Array<{ project_id: string; title: string; activity_count: number }>;
 }
 
+import { buildUrl } from '@/lib/apiClient';
+
+
 async function handleArrayResponse<T>(res: Response): Promise<T[]> {
-  if (!res.ok) {
-    let msg = `Admin API request failed with status ${res.status}`;
+  const text = await res.text();
+  let body: any = null;
+  if (text) {
     try {
-      const body = await res.json();
-      msg = body.detail || body.message || msg;
+      body = JSON.parse(text);
     } catch {
-      // ignore json parse error
+      body = null;
     }
+  }
+
+  if (!res.ok) {
+    const msg = body?.detail || body?.error?.message || body?.message || `Admin API request failed with HTTP ${res.status}`;
     throw new Error(msg);
   }
-  const data = await res.json();
+
+  const data = body?.data !== undefined ? body.data : body;
   return Array.isArray(data) ? data : [];
 }
 
 async function handleObjectResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let msg = `Admin API request failed with status ${res.status}`;
+  const text = await res.text();
+  let body: any = null;
+  if (text) {
     try {
-      const body = await res.json();
-      msg = body.detail || body.message || msg;
+      body = JSON.parse(text);
     } catch {
-      // ignore json parse error
+      body = null;
     }
+  }
+
+  if (!res.ok) {
+    const msg = body?.detail || body?.error?.message || body?.message || `Admin API request failed with HTTP ${res.status}`;
     throw new Error(msg);
   }
-  return res.json();
+
+  return (body?.data !== undefined ? body.data : body) as T;
 }
 
 import { fetchWithCache } from './apiCache';
@@ -208,7 +221,7 @@ import { fetchWithCache } from './apiCache';
 export const adminService = {
   getOverview: async (): Promise<AdminOverview> => {
     return fetchWithCache('admin_overview', async () => {
-      const res = await fetch('/api/v1/admin/overview', {
+      const res = await fetch(buildUrl('/api/v1/admin/overview'), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleObjectResponse<AdminOverview>(res);
@@ -218,7 +231,7 @@ export const adminService = {
   getUsers: async (search?: string): Promise<AdminUser[]> => {
     const query = search ? `?search=${encodeURIComponent(search)}` : '';
     return fetchWithCache(`admin_users_${query}`, async () => {
-      const res = await fetch(`/api/v1/admin/users${query}`, {
+      const res = await fetch(buildUrl(`/api/v1/admin/users${query}`), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleArrayResponse<AdminUser>(res);
@@ -227,7 +240,7 @@ export const adminService = {
 
   getUserJourney: async (userId: string): Promise<UserLearningJourney> => {
     return fetchWithCache(`admin_user_journey_${userId}`, async () => {
-      const res = await fetch(`/api/v1/admin/users/${userId}/journey`, {
+      const res = await fetch(buildUrl(`/api/v1/admin/users/${userId}/journey`), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleObjectResponse<UserLearningJourney>(res);
@@ -237,7 +250,7 @@ export const adminService = {
   getSpaces: async (search?: string): Promise<AdminSpace[]> => {
     const query = search ? `?search=${encodeURIComponent(search)}` : '';
     return fetchWithCache(`admin_spaces_${query}`, async () => {
-      const res = await fetch(`/api/v1/admin/spaces${query}`, {
+      const res = await fetch(buildUrl(`/api/v1/admin/spaces${query}`), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleArrayResponse<AdminSpace>(res);
@@ -247,7 +260,7 @@ export const adminService = {
   getProjects: async (search?: string): Promise<AdminProject[]> => {
     const query = search ? `?search=${encodeURIComponent(search)}` : '';
     return fetchWithCache(`admin_projects_${query}`, async () => {
-      const res = await fetch(`/api/v1/admin/projects${query}`, {
+      const res = await fetch(buildUrl(`/api/v1/admin/projects${query}`), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleArrayResponse<AdminProject>(res);
@@ -270,7 +283,7 @@ export const adminService = {
 
     const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
     return fetchWithCache(`admin_activity_${query}`, async () => {
-      const res = await fetch(`/api/v1/admin/activity${query}`, {
+      const res = await fetch(buildUrl(`/api/v1/admin/activity${query}`), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleArrayResponse<AdminActivity>(res);
@@ -280,7 +293,7 @@ export const adminService = {
   getAIUsage: async (provider?: string): Promise<AILog[]> => {
     const query = provider ? `?provider=${encodeURIComponent(provider)}` : '';
     return fetchWithCache(`admin_ai_usage_${query}`, async () => {
-      const res = await fetch(`/api/v1/admin/ai-usage${query}`, {
+      const res = await fetch(buildUrl(`/api/v1/admin/ai-usage${query}`), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleArrayResponse<AILog>(res);
@@ -289,7 +302,7 @@ export const adminService = {
 
   getAIEvaluation: async (): Promise<AIEvaluation> => {
     return fetchWithCache('admin_ai_eval', async () => {
-      const res = await fetch('/api/v1/admin/ai-evaluation', {
+      const res = await fetch(buildUrl('/api/v1/admin/ai-evaluation'), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleObjectResponse<AIEvaluation>(res);
@@ -299,7 +312,7 @@ export const adminService = {
   getJobs: async (status?: string): Promise<BackgroundJob[]> => {
     const query = status ? `?status=${encodeURIComponent(status)}` : '';
     return fetchWithCache(`admin_jobs_${query}`, async () => {
-      const res = await fetch(`/api/v1/admin/jobs${query}`, {
+      const res = await fetch(buildUrl(`/api/v1/admin/jobs${query}`), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleArrayResponse<BackgroundJob>(res);
@@ -308,7 +321,7 @@ export const adminService = {
 
   getSystemHealth: async (): Promise<SystemHealth> => {
     return fetchWithCache('admin_system_health', async () => {
-      const res = await fetch('/api/v1/admin/system-health', {
+      const res = await fetch(buildUrl('/api/v1/admin/system-health'), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleObjectResponse<SystemHealth>(res);
@@ -317,12 +330,13 @@ export const adminService = {
 
   getGlobalAnalytics: async (): Promise<GlobalAnalytics> => {
     return fetchWithCache('admin_global_analytics', async () => {
-      const res = await fetch('/api/v1/analytics/global', {
+      const res = await fetch(buildUrl('/api/v1/analytics/global'), {
         headers: { ...authService.getAuthHeaders() },
       });
       return handleObjectResponse<GlobalAnalytics>(res);
     }, 15000);
   },
 };
+
 
 

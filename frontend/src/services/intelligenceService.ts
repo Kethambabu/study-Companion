@@ -1,5 +1,5 @@
-import { ApiResponse } from "@/types/api";
 import { authService } from "./authService";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface WeakConceptItem {
   concept_id: string;
@@ -59,13 +59,14 @@ export interface LearningIntelligenceSummaryResponse {
 
 export const intelligenceService = {
   getIntelligenceSummary: async (projectId: string): Promise<LearningIntelligenceSummaryResponse> => {
-    const res = await fetch(`/api/v1/projects/${projectId}/intelligence`, {
+    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/intelligence`), {
       headers: { ...authService.getAuthHeaders() },
     });
-    const result: ApiResponse<LearningIntelligenceSummaryResponse> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<LearningIntelligenceSummaryResponse>(res, "Failed to fetch learning intelligence summary");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch learning intelligence summary.");
     }
     return result.data;
   },
 };
+

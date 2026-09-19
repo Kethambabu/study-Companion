@@ -1,5 +1,5 @@
-import { ApiResponse } from "@/types/api";
 import { authService } from "./authService";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface ConversationItem {
   id: string;
@@ -61,7 +61,7 @@ export interface TutorChatResult {
 
 export const tutorService = {
   async createConversation(projectId: string, title?: string): Promise<ConversationItem> {
-    const response = await fetch(`/api/v1/projects/${projectId}/tutor/conversations`, {
+    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/tutor/conversations`), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -70,20 +70,20 @@ export const tutorService = {
       body: JSON.stringify({ title }),
     });
 
-    const result: ApiResponse<ConversationItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<ConversationItem>(response, "Failed to create conversation");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to create conversation.");
     }
     return result.data;
   },
 
   async listConversations(projectId: string): Promise<ConversationItem[]> {
-    const response = await fetch(`/api/v1/projects/${projectId}/tutor/conversations`, {
+    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/tutor/conversations`), {
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<ConversationItem[]> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<ConversationItem[]>(response, "Failed to list conversations");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to list conversations.");
     }
     return result.data;
@@ -97,14 +97,14 @@ export const tutorService = {
   ): Promise<PaginatedMessages> {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
     const response = await fetch(
-      `/api/v1/projects/${projectId}/tutor/conversations/${conversationId}/messages?${params.toString()}`,
+      buildUrl(`/api/v1/projects/${projectId}/tutor/conversations/${conversationId}/messages?${params.toString()}`),
       {
         headers: { ...authService.getAuthHeaders() },
       }
     );
 
-    const result: ApiResponse<PaginatedMessages> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<PaginatedMessages>(response, "Failed to fetch conversation messages");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch conversation messages.");
     }
     return result.data;
@@ -117,7 +117,7 @@ export const tutorService = {
     mode: "default" | "explain_simpler" | "give_example" | "test_me" = "default"
   ): Promise<TutorChatResult> {
     const response = await fetch(
-      `/api/v1/projects/${projectId}/tutor/conversations/${conversationId}/messages`,
+      buildUrl(`/api/v1/projects/${projectId}/tutor/conversations/${conversationId}/messages`),
       {
         method: "POST",
         headers: {
@@ -128,22 +128,26 @@ export const tutorService = {
       }
     );
 
-    const result: ApiResponse<TutorChatResult> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<TutorChatResult>(response, "Failed to send message to AI Tutor");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to send message to AI Tutor.");
     }
     return result.data;
   },
 
   async getLearningContext(projectId: string): Promise<string> {
-    const response = await fetch(`/api/v1/projects/${projectId}/tutor/learning-context`, {
-      headers: { ...authService.getAuthHeaders() },
-    });
-    const result: ApiResponse<{ learning_context: string }> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    try {
+      const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/tutor/learning-context`), {
+        headers: { ...authService.getAuthHeaders() },
+      });
+      const result = await parseApiResponse<{ learning_context: string }>(response, "Failed to fetch learning context");
+      if (!result.success || !result.data) {
+        return "Learner Context: Target mastery goals and active course practice.";
+      }
+      return result.data.learning_context;
+    } catch {
       return "Learner Context: Target mastery goals and active course practice.";
     }
-    return result.data.learning_context;
   },
 
   async streamMessage(
@@ -156,7 +160,7 @@ export const tutorService = {
     onComplete: () => void
   ): Promise<void> {
     const response = await fetch(
-      `/api/v1/projects/${projectId}/tutor/conversations/${conversationId}/stream`,
+      buildUrl(`/api/v1/projects/${projectId}/tutor/conversations/${conversationId}/stream`),
       {
         method: "POST",
         headers: {
@@ -205,3 +209,4 @@ export const tutorService = {
     onComplete();
   },
 };
+

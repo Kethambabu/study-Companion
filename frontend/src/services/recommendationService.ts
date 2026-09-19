@@ -1,5 +1,5 @@
-import { ApiResponse } from "@/types/api";
 import { authService } from "./authService";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface RecommendationItem {
   id: string;
@@ -30,22 +30,22 @@ export interface NextActionCardData {
 
 export const recommendationService = {
   getNextActionCard: async (projectId: string): Promise<NextActionCardData> => {
-    const res = await fetch(`/api/v1/projects/${projectId}/recommendations/next-action`, {
+    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/recommendations/next-action`), {
       headers: { ...authService.getAuthHeaders() },
     });
-    const result: ApiResponse<NextActionCardData> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<NextActionCardData>(res, "Failed to fetch Next Action recommendation");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch Next Action recommendation.");
     }
     return result.data;
   },
 
   listRecommendations: async (projectId: string): Promise<RecommendationItem[]> => {
-    const res = await fetch(`/api/v1/projects/${projectId}/recommendations`, {
+    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/recommendations`), {
       headers: { ...authService.getAuthHeaders() },
     });
-    const result: ApiResponse<RecommendationItem[]> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<RecommendationItem[]>(res, "Failed to list recommendations");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to list recommendations.");
     }
     return result.data;
@@ -56,16 +56,17 @@ export const recommendationService = {
     recommendationId: string
   ): Promise<RecommendationItem> => {
     const res = await fetch(
-      `/api/v1/projects/${projectId}/recommendations/${recommendationId}/complete`,
+      buildUrl(`/api/v1/projects/${projectId}/recommendations/${recommendationId}/complete`),
       {
         method: "POST",
         headers: { ...authService.getAuthHeaders() },
       }
     );
-    const result: ApiResponse<RecommendationItem> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<RecommendationItem>(res, "Failed to complete recommendation");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to complete recommendation.");
     }
     return result.data;
   },
 };
+

@@ -1,5 +1,5 @@
-import { ApiResponse } from "@/types/api";
 import { authService } from "./authService";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface MaterialItem {
   id: string;
@@ -63,16 +63,16 @@ export const materialsService = {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (search) params.append("search", search);
 
-    const endpoint = projectId
+    const path = projectId
       ? `/api/v1/projects/${projectId}/materials?${params.toString()}`
       : `/api/v1/materials?${params.toString()}`;
 
-    const response = await fetch(endpoint, {
+    const response = await fetch(buildUrl(path), {
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<PaginatedMaterials> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<PaginatedMaterials>(response, "Failed to fetch materials");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch materials.");
     }
     return result.data;
@@ -85,7 +85,7 @@ export const materialsService = {
   ): Promise<MaterialItem> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `/api/v1/projects/${projectId}/materials`);
+      xhr.open("POST", buildUrl(`/api/v1/projects/${projectId}/materials`));
 
       const headers = authService.getAuthHeaders();
       Object.entries(headers).forEach(([key, val]) => {
@@ -103,11 +103,11 @@ export const materialsService = {
 
       xhr.onload = () => {
         try {
-          const result: ApiResponse<MaterialItem> = JSON.parse(xhr.responseText);
+          const result = JSON.parse(xhr.responseText);
           if (xhr.status >= 200 && xhr.status < 300 && result.success && result.data) {
             resolve(result.data);
           } else {
-            reject(new Error(result.error?.message || "Material upload failed."));
+            reject(new Error(result?.error?.message || result?.detail || "Material upload failed."));
           }
         } catch {
           reject(new Error("Failed to parse server upload response."));
@@ -123,12 +123,12 @@ export const materialsService = {
   },
 
   async getMaterial(materialId: string): Promise<MaterialItem> {
-    const response = await fetch(`/api/v1/materials/${materialId}`, {
+    const response = await fetch(buildUrl(`/api/v1/materials/${materialId}`), {
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<MaterialItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<MaterialItem>(response, "Failed to fetch material details");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch material details.");
     }
     return result.data;
@@ -140,27 +140,28 @@ export const materialsService = {
     limit = 50
   ): Promise<PaginatedMaterialPages> {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    const response = await fetch(`/api/v1/materials/${materialId}/pages?${params.toString()}`, {
+    const response = await fetch(buildUrl(`/api/v1/materials/${materialId}/pages?${params.toString()}`), {
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<PaginatedMaterialPages> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<PaginatedMaterialPages>(response, "Failed to fetch material pages");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch material pages.");
     }
     return result.data;
   },
 
   async retryMaterial(materialId: string): Promise<MaterialItem> {
-    const response = await fetch(`/api/v1/materials/${materialId}/retry`, {
+    const response = await fetch(buildUrl(`/api/v1/materials/${materialId}/retry`), {
       method: "POST",
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<MaterialItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<MaterialItem>(response, "Failed to retry material processing");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to retry material processing.");
     }
     return result.data;
   },
 };
+

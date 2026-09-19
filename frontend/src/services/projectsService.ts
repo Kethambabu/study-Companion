@@ -1,5 +1,5 @@
-import { ApiResponse } from "@/types/api";
 import { authService } from "./authService";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface ProjectItem {
   id: string;
@@ -50,24 +50,25 @@ export const projectsService = {
     if (statusFilter) params.append("status", statusFilter);
     if (search) params.append("search", search);
 
-    const response = await fetch(`/api/v1/projects?${params.toString()}`, {
+    const response = await fetch(buildUrl(`/api/v1/projects?${params.toString()}`), {
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<PaginatedProjects> = await response.json();
     if (response.status === 401) {
       authService.clearToken();
       window.location.href = "/login";
       throw new Error("Session expired. Please sign in again.");
     }
-    if (!response.ok || !result.success || !result.data) {
+
+    const result = await parseApiResponse<PaginatedProjects>(response, "Failed to fetch projects");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch projects.");
     }
     return result.data;
   },
 
   async createProject(payload: CreateProjectPayload): Promise<ProjectItem> {
-    const response = await fetch("/api/v1/projects", {
+    const response = await fetch(buildUrl("/api/v1/projects"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -76,27 +77,27 @@ export const projectsService = {
       body: JSON.stringify(payload),
     });
 
-    const result: ApiResponse<ProjectItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<ProjectItem>(response, "Failed to create project");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to create project.");
     }
     return result.data;
   },
 
   async getProject(projectId: string): Promise<ProjectItem> {
-    const response = await fetch(`/api/v1/projects/${projectId}`, {
+    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}`), {
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<ProjectItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<ProjectItem>(response, "Failed to fetch project details");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch project details.");
     }
     return result.data;
   },
 
   async updateProject(projectId: string, payload: UpdateProjectPayload): Promise<ProjectItem> {
-    const response = await fetch(`/api/v1/projects/${projectId}`, {
+    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}`), {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -105,23 +106,24 @@ export const projectsService = {
       body: JSON.stringify(payload),
     });
 
-    const result: ApiResponse<ProjectItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<ProjectItem>(response, "Failed to update project");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to update project.");
     }
     return result.data;
   },
 
   async archiveProject(projectId: string): Promise<ProjectItem> {
-    const response = await fetch(`/api/v1/projects/${projectId}`, {
+    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}`), {
       method: "DELETE",
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<ProjectItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<ProjectItem>(response, "Failed to archive project");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to archive project.");
     }
     return result.data;
   },
 };
+

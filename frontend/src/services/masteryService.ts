@@ -1,6 +1,6 @@
-import { ApiResponse } from "@/types/api";
 import { authService } from "./authService";
 import { fetchWithCache } from "./apiCache";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface ConceptMasteryItem {
   id: string;
@@ -61,22 +61,22 @@ export interface GrowthSnapshotItem {
 
 export const masteryService = {
   listMasteries: async (projectId: string): Promise<ConceptMasteryItem[]> => {
-    const res = await fetch(`/api/v1/projects/${projectId}/mastery`, {
+    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/mastery`), {
       headers: { ...authService.getAuthHeaders() },
     });
-    const result: ApiResponse<ConceptMasteryItem[]> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<ConceptMasteryItem[]>(res, "Failed to fetch concept masteries");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch concept masteries.");
     }
     return result.data;
   },
 
   getExplanation: async (projectId: string, conceptId: string): Promise<MasteryExplanationItem> => {
-    const res = await fetch(`/api/v1/projects/${projectId}/mastery/${encodeURIComponent(conceptId)}/explanation`, {
+    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/mastery/${encodeURIComponent(conceptId)}/explanation`), {
       headers: { ...authService.getAuthHeaders() },
     });
-    const result: ApiResponse<MasteryExplanationItem> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<MasteryExplanationItem>(res, "Failed to fetch mastery explanation");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch mastery explanation.");
     }
     return result.data;
@@ -84,11 +84,11 @@ export const masteryService = {
 
   getGrowthSummary: async (projectId: string): Promise<GrowthSummaryItem> => {
     return fetchWithCache(`growth:${projectId}`, async () => {
-      const res = await fetch(`/api/v1/projects/${projectId}/growth/summary`, {
+      const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/growth/summary`), {
         headers: { ...authService.getAuthHeaders() },
       });
-      const result: ApiResponse<GrowthSummaryItem> = await res.json();
-      if (!res.ok || !result.success || !result.data) {
+      const result = await parseApiResponse<GrowthSummaryItem>(res, "Failed to fetch growth summary");
+      if (!result.success || !result.data) {
         throw new Error(result.error?.message || "Failed to fetch growth summary.");
       }
       return result.data;
@@ -96,13 +96,14 @@ export const masteryService = {
   },
 
   getGrowthSnapshots: async (projectId: string): Promise<GrowthSnapshotItem[]> => {
-    const res = await fetch(`/api/v1/projects/${projectId}/growth/snapshots`, {
+    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/growth/snapshots`), {
       headers: { ...authService.getAuthHeaders() },
     });
-    const result: ApiResponse<GrowthSnapshotItem[]> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<GrowthSnapshotItem[]>(res, "Failed to fetch growth snapshots");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch growth snapshots.");
     }
     return result.data;
   },
 };
+

@@ -1,5 +1,5 @@
-import { ApiResponse } from "@/types/api";
 import { authService } from "./authService";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface ConceptTrendPoint {
   concept_id: string;
@@ -58,24 +58,25 @@ export interface StudentGlobalAnalyticsData {
 
 export const analyticsService = {
   getProjectAnalytics: async (projectId: string): Promise<ProjectAnalyticsData> => {
-    const res = await fetch(`/api/v1/analytics/project/${projectId}`, {
+    const res = await fetch(buildUrl(`/api/v1/analytics/project/${projectId}`), {
       headers: { ...authService.getAuthHeaders() },
     });
-    const result: ApiResponse<ProjectAnalyticsData> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<ProjectAnalyticsData>(res, "Failed to fetch project analytics");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch project analytics.");
     }
     return result.data;
   },
 
   getStudentGlobalAnalytics: async (): Promise<StudentGlobalAnalyticsData> => {
-    const res = await fetch(`/api/v1/analytics/student/global`, {
+    const res = await fetch(buildUrl(`/api/v1/analytics/student/global`), {
       headers: { ...authService.getAuthHeaders() },
     });
-    const result: ApiResponse<StudentGlobalAnalyticsData> = await res.json();
-    if (!res.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<StudentGlobalAnalyticsData>(res, "Failed to fetch student global analytics");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch student global analytics.");
     }
     return result.data;
   },
 };
+
