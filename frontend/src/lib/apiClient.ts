@@ -14,13 +14,14 @@ export function buildUrl(path: string): string {
   let baseUrl = API_BASE_URL;
   if (!baseUrl && typeof window !== "undefined") {
     const hostname = window.location.hostname;
-    if (hostname.endsWith(".onrender.com") && !hostname.includes("study-companion-backend")) {
-      baseUrl = "https://study-companion-backend.onrender.com";
+    if (hostname.endsWith(".onrender.com") && !hostname.includes("study-companion-1-q4k8")) {
+      baseUrl = "https://study-companion-1-q4k8.onrender.com";
     }
   }
 
   return baseUrl ? `${baseUrl}${cleanPath}` : cleanPath;
 }
+
 
 export async function parseApiResponse<T>(
   response: Response,

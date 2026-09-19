@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: list[str] = [
         "https://study-companion-2.onrender.com",
-        "https://study-companion-backend.onrender.com",
+        "https://study-companion-1-q4k8.onrender.com",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ]
@@ -49,9 +49,11 @@ class Settings(BaseSettings):
             return [str(item) for item in v]
         return [
             "https://study-companion-2.onrender.com",
+            "https://study-companion-1-q4k8.onrender.com",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
         ]
+
 
 
 

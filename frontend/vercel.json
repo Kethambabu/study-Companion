@@ -5,7 +5,8 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://study-companion-backend.onrender.com/api/$1"
+      "destination": "https://study-companion-1-q4k8.onrender.com/api/$1"
+
     },
     {
       "source": "/(.*)",
