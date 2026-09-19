@@ -1,5 +1,6 @@
-import { ApiResponse } from "@/types/api";
 import { authService } from "./authService";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
+
 
 export interface SpaceVisualMetadata {
   icon?: string;
@@ -32,24 +33,25 @@ export const spacesService = {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (search) params.append("search", search);
 
-    const response = await fetch(`/api/v1/spaces?${params.toString()}`, {
+    const response = await fetch(buildUrl(`/api/v1/spaces?${params.toString()}`), {
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<PaginatedSpaces> = await response.json();
     if (response.status === 401) {
       authService.clearToken();
       window.location.href = "/login";
       throw new Error("Session expired. Please sign in again.");
     }
-    if (!response.ok || !result.success || !result.data) {
+
+    const result = await parseApiResponse<PaginatedSpaces>(response, "Failed to fetch spaces");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to fetch spaces.");
     }
     return result.data;
   },
 
   async createSpace(name: string, slug: string, description?: string, visual_metadata?: SpaceVisualMetadata): Promise<SpaceItem> {
-    const response = await fetch("/api/v1/spaces", {
+    const response = await fetch(buildUrl("/api/v1/spaces"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -58,27 +60,27 @@ export const spacesService = {
       body: JSON.stringify({ name, slug, description, visual_metadata }),
     });
 
-    const result: ApiResponse<SpaceItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<SpaceItem>(response, "Failed to create space");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to create space.");
     }
     return result.data;
   },
 
   async getSpace(spaceId: string): Promise<SpaceItem> {
-    const response = await fetch(`/api/v1/spaces/${spaceId}`, {
+    const response = await fetch(buildUrl(`/api/v1/spaces/${spaceId}`), {
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<SpaceItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<SpaceItem>(response, "Failed to load space details");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to load space details.");
     }
     return result.data;
   },
 
   async updateSpace(spaceId: string, payload: { name?: string; description?: string; visual_metadata?: SpaceVisualMetadata }): Promise<SpaceItem> {
-    const response = await fetch(`/api/v1/spaces/${spaceId}`, {
+    const response = await fetch(buildUrl(`/api/v1/spaces/${spaceId}`), {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -87,23 +89,24 @@ export const spacesService = {
       body: JSON.stringify(payload),
     });
 
-    const result: ApiResponse<SpaceItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<SpaceItem>(response, "Failed to update space");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to update space.");
     }
     return result.data;
   },
 
   async archiveSpace(spaceId: string): Promise<SpaceItem> {
-    const response = await fetch(`/api/v1/spaces/${spaceId}`, {
+    const response = await fetch(buildUrl(`/api/v1/spaces/${spaceId}`), {
       method: "DELETE",
       headers: { ...authService.getAuthHeaders() },
     });
 
-    const result: ApiResponse<SpaceItem> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<SpaceItem>(response, "Failed to archive space");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to archive space.");
     }
     return result.data;
   },
 };
+

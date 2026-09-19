@@ -18,4 +18,5 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: '["https://*.vercel.app","http://localhost:5173"]'
+        value: '["https://*.onrender.com","https://*.vercel.app","http://localhost:5173"]'
+

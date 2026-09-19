@@ -1,4 +1,5 @@
 import { ApiResponse, HealthStatus } from "@/types/api";
+import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface UserProfile {
   id: string;
@@ -35,14 +36,14 @@ export const authService = {
   },
 
   async login(email: string, password: string): Promise<TokenResponseData> {
-    const response = await fetch("/api/v1/auth/login", {
+    const response = await fetch(buildUrl("/api/v1/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
 
-    const result: ApiResponse<TokenResponseData> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<TokenResponseData>(response, "Failed to authenticate");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to authenticate.");
     }
 
@@ -51,14 +52,14 @@ export const authService = {
   },
 
   async signup(email: string, password: string, fullName: string): Promise<TokenResponseData> {
-    const response = await fetch("/api/v1/auth/signup", {
+    const response = await fetch(buildUrl("/api/v1/auth/signup"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password, full_name: fullName }),
     });
 
-    const result: ApiResponse<TokenResponseData> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const result = await parseApiResponse<TokenResponseData>(response, "Registration failed");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Registration failed.");
     }
 
@@ -72,15 +73,22 @@ export const authService = {
       throw new Error("No token stored.");
     }
 
-    const response = await fetch("/api/v1/auth/me", {
+    const response = await fetch(buildUrl("/api/v1/auth/me"), {
       headers: {
         "Content-Type": "application/json",
         ...this.getAuthHeaders(),
       },
     });
 
-    const result: ApiResponse<UserProfile> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    let result: ApiResponse<UserProfile>;
+    try {
+      result = await parseApiResponse<UserProfile>(response, "Session check failed");
+    } catch (err) {
+      this.clearToken();
+      throw err;
+    }
+
+    if (!result.success || !result.data) {
       this.clearToken();
       throw new Error(result.error?.message || "Session expired.");
     }
@@ -90,7 +98,7 @@ export const authService = {
 
   async logout(): Promise<void> {
     try {
-      await fetch("/api/v1/auth/logout", {
+      await fetch(buildUrl("/api/v1/auth/logout"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -105,11 +113,12 @@ export const authService = {
   },
 
   async fetchHealth(): Promise<HealthStatus> {
-    const response = await fetch("/api/v1/health");
-    const result: ApiResponse<HealthStatus> = await response.json();
-    if (!response.ok || !result.success || !result.data) {
+    const response = await fetch(buildUrl("/api/v1/health"));
+    const result = await parseApiResponse<HealthStatus>(response, "Health check failed");
+    if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Health check failed");
     }
     return result.data;
   },
 };
+
