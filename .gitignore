@@ -54,6 +54,7 @@ memdb*
 BACKEND_*.md
 FRONTEND_*.md
 *.txt
+!backend/requirements.txt
 file
 
 # Temporary Scratch & Debug Test Scripts (Keep unit test suite in backend/tests/ and test_learning_loop_e2e.py)
