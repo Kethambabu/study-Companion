@@ -78,3 +78,8 @@ backend/file
 *.swo
 .DS_Store
 Thumbs.db
+
+
+
+
+docs/
