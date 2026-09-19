@@ -1,21 +1,17 @@
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
-if not hasattr(bcrypt, "__about__"):
-    bcrypt.__about__ = type("About", (), {"__version__": getattr(bcrypt, "__version__", "4.0.0")})
-
 import jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 from app.core.exceptions import UnauthorizedAccessError
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hash_password(password: str) -> str:
     """Hashes a raw password string using bcrypt."""
-    return pwd_context.hash(password)
+    pwd_bytes = password.encode("utf-8")[:72]
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -25,9 +21,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     if plain_password == hashed_password:
         return True
     try:
-        return pwd_context.verify(plain_password, hashed_password)
+        pwd_bytes = plain_password.encode("utf-8")[:72]
+        hash_bytes = hashed_password.encode("utf-8")
+        return bcrypt.checkpw(pwd_bytes, hash_bytes)
     except Exception:
         return False
+
 
 
 def create_access_token(
