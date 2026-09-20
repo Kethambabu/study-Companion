@@ -114,7 +114,7 @@ class MaterialsService:
     def _enqueue_material_processing_task(
         self, material_id: uuid.UUID, user_id: uuid.UUID, project_id: uuid.UUID
     ) -> None:
-        """Enqueues document extraction task to Celery worker with graceful inline fallback."""
+        """Enqueues document extraction task to Celery worker with guaranteed inline processing fallback."""
         now = datetime.now(UTC)
         job_id = uuid.uuid4()
         job = MaterialProcessingJob(
@@ -127,15 +127,21 @@ class MaterialsService:
         )
         _IN_MEMORY_JOBS[str(job_id)] = job
 
+        celery_enqueued = False
         try:
-            from workers.tasks.material_tasks import process_material_task
-            process_material_task.delay(
-                material_id_str=str(material_id),
-                user_id_str=str(user_id),
-                project_id_str=str(project_id),
-            )
+            from app.core.config import settings
+            if not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+                from workers.tasks.material_tasks import process_material_task
+                process_material_task.delay(
+                    material_id_str=str(material_id),
+                    user_id_str=str(user_id),
+                    project_id_str=str(project_id),
+                )
+                celery_enqueued = True
         except Exception:
-            # Fallback execution when Celery/broker is unavailable or in eager mode
+            celery_enqueued = False
+
+        if not celery_enqueued:
             import asyncio
             try:
                 loop = asyncio.get_running_loop()
@@ -187,10 +193,11 @@ class MaterialsService:
             # Perform document extraction
             extracted_pages = self.extractor.extract(content_bytes)
 
-            # Calculate total word count and estimated reading time
+            # Calculate total word count, page count, and estimated reading time
             total_words = sum(ep.metadata.get("word_count", 0) for ep in extracted_pages)
             reading_mins = max(1, round(total_words / 200)) if total_words > 0 else 0
             material.word_count = total_words
+            material.page_count = len(extracted_pages)
             material.estimated_reading_minutes = reading_mins
 
             # Stage update: CHUNKING & KNOWLEDGE EXTRACTION

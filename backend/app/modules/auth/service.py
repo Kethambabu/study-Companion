@@ -234,22 +234,6 @@ class AuthService:
 
     async def list_user_spaces(self, user_id: uuid.UUID) -> list[SpaceResponse]:
         spaces_map: dict[str, SpaceResponse] = {}
-        for space_id, members in _IN_MEMORY_MEMBERS.items():
-            for m in members:
-                if m.user_id == user_id:
-                    sp = _IN_MEMORY_SPACES.get(space_id)
-                    if sp:
-                        spaces_map[str(sp.id)] = SpaceResponse(
-                            id=sp.id,
-                            name=sp.name,
-                            slug=sp.slug,
-                            description=sp.description,
-                            visual_metadata=sp.visual_metadata,
-                            owner_id=sp.owner_id,
-                            role=m.role,
-                        )
-        if spaces_map:
-            return list(spaces_map.values())
 
         if self.db is not None:
             try:
@@ -273,6 +257,22 @@ class AuthService:
                     )
             except Exception:
                 await self.db.rollback()
+
+        for space_id, members in _IN_MEMORY_MEMBERS.items():
+            for m in members:
+                if m.user_id == user_id and space_id not in spaces_map:
+                    sp = _IN_MEMORY_SPACES.get(space_id)
+                    if sp:
+                        spaces_map[str(sp.id)] = SpaceResponse(
+                            id=sp.id,
+                            name=sp.name,
+                            slug=sp.slug,
+                            description=sp.description,
+                            visual_metadata=sp.visual_metadata,
+                            owner_id=sp.owner_id,
+                            role=m.role,
+                        )
+
         return list(spaces_map.values())
 
     async def create_space(self, user_id: uuid.UUID, req: SpaceCreateRequest) -> SpaceResponse:
