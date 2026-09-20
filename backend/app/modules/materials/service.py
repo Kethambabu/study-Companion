@@ -41,7 +41,7 @@ class MaterialsService:
         has_access = await auth_service.check_space_access(
             user_id=user_id, space_id=project.space_id, min_role="member"
         )
-        if not has_access:
+        if not has_access and project.owner_id != user_id:
             raise TenantAccessDeniedError("Access denied for target project space.")
 
         # 2. Validate file & save to storage
@@ -54,16 +54,19 @@ class MaterialsService:
 
         # 3. Check for duplicate upload in same project
         if self.db is not None:
-            from sqlalchemy import select
-            stmt = select(Material).where(
-                Material.project_id == project_id,
-                Material.checksum == checksum,
-                Material.status != "failed"
-            )
-            res = await self.db.execute(stmt)
-            dup = res.scalar_one_or_none()
-            if dup:
-                return self._to_material_response(dup)
+            try:
+                from sqlalchemy import select
+                stmt = select(Material).where(
+                    Material.project_id == project_id,
+                    Material.checksum == checksum,
+                    Material.status != "failed"
+                )
+                res = await self.db.execute(stmt)
+                dup = res.scalar_one_or_none()
+                if dup:
+                    return self._to_material_response(dup)
+            except Exception:
+                await self.db.rollback()
 
         for existing in _IN_MEMORY_MATERIALS.values():
             if (
@@ -337,7 +340,7 @@ class MaterialsService:
         has_access = await auth_service.check_space_access(
             user_id=user_id, space_id=project.space_id, min_role="member"
         )
-        if not has_access:
+        if not has_access and project.owner_id != user_id and material.owner_id != user_id:
             raise TenantAccessDeniedError("Access denied to retry material processing.")
 
         # Reset material status to queued
@@ -387,7 +390,7 @@ class MaterialsService:
         has_access = await auth_service.check_space_access(
             user_id=user_id, space_id=project.space_id, min_role="member"
         )
-        if not has_access:
+        if not has_access and project.owner_id != user_id and material.owner_id != user_id:
             raise TenantAccessDeniedError("Access denied for requested material.")
 
         return self._to_material_response(material)
@@ -408,7 +411,7 @@ class MaterialsService:
 
         if project_id:
             proj = await projects_service.get_project(project_id)
-            if proj.space_id not in accessible_space_ids:
+            if proj.space_id not in accessible_space_ids and proj.owner_id != user_id:
                 raise TenantAccessDeniedError("Access denied for requested project materials.")
 
         matched_map: dict[str, Material] = dict(_IN_MEMORY_MATERIALS)
@@ -417,26 +420,42 @@ class MaterialsService:
             try:
                 from sqlalchemy import select
                 stmt = select(Material)
-                if project_id:
-                    stmt = stmt.where(Material.project_id == project_id)
                 res = await self.db.execute(stmt)
                 db_mats = res.scalars().all()
                 for m in db_mats:
                     matched_map[str(m.id)] = m
             except Exception:
-                pass
+                await self.db.rollback()
+
+        # Build projects map once to prevent N+1 queries per material
+        projects_map: dict[uuid.UUID, tuple[uuid.UUID, uuid.UUID]] = {}
+        from app.modules.projects.service import _IN_MEMORY_PROJECTS
+        for p in _IN_MEMORY_PROJECTS.values():
+            projects_map[p.id] = (p.space_id, p.owner_id)
+
+        if self.db is not None:
+            try:
+                from sqlalchemy import select
+                from app.modules.projects.models import Project
+                p_stmt = select(Project.id, Project.space_id, Project.owner_id)
+                p_res = await self.db.execute(p_stmt)
+                for p_id, p_sid, p_oid in p_res.all():
+                    projects_map[p_id] = (p_sid, p_oid)
+            except Exception:
+                await self.db.rollback()
 
         matched: list[Material] = []
         for mat in matched_map.values():
             if project_id and mat.project_id != project_id:
                 continue
 
-            # Verify project space accessibility
-            try:
-                proj = await projects_service.get_project(mat.project_id)
-                if proj.space_id not in accessible_space_ids:
+            # Verify project space accessibility or project ownership
+            p_info = projects_map.get(mat.project_id)
+            if p_info:
+                p_space_id, p_owner_id = p_info
+                if p_space_id not in accessible_space_ids and p_owner_id != user_id and mat.owner_id != user_id:
                     continue
-            except EntityNotFoundError:
+            elif mat.owner_id != user_id:
                 continue
 
             if search and search.lower() not in mat.filename.lower():
@@ -471,7 +490,7 @@ class MaterialsService:
                 res = await self.db.execute(stmt)
                 pages = list(res.scalars().all())
             except Exception:
-                pass
+                await self.db.rollback()
 
         if not pages:
             pages = _IN_MEMORY_PAGES.get(str(material_id), [])
@@ -497,7 +516,14 @@ class MaterialsService:
         return PaginatedPagesResponse(items=items, total=total, page=page, limit=limit)
 
     def _to_material_response(self, mat: Material) -> MaterialResponse:
-        pages = _IN_MEMORY_PAGES.get(str(mat.id), [])
+        page_count = 0
+        if hasattr(mat, "__dict__") and "pages" in mat.__dict__ and mat.pages is not None:
+            page_count = len(mat.pages)
+        elif str(mat.id) in _IN_MEMORY_PAGES:
+            page_count = len(_IN_MEMORY_PAGES[str(mat.id)])
+        else:
+            page_count = getattr(mat, "page_count", 0) or 0
+
         now = datetime.now(UTC)
         return MaterialResponse(
             id=mat.id,
@@ -521,5 +547,5 @@ class MaterialsService:
             started_at=mat.started_at,
             completed_at=mat.completed_at,
             failed_at=mat.failed_at,
-            page_count=len(pages),
+            page_count=page_count,
         )

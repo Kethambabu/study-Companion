@@ -6,6 +6,7 @@ import {
   ConversationItem,
   ConversationMessageItem,
 } from "@/services/tutorService";
+import { assessmentService, LearningProgressItem } from "@/services/assessmentService";
 import {
   Bot,
   User,
@@ -18,6 +19,8 @@ import {
   BookOpen,
   AlertTriangle,
   RotateCcw,
+  BrainCircuit,
+  ArrowRight,
 } from "lucide-react";
 
 export const TutorPage: React.FC = () => {
@@ -36,6 +39,17 @@ export const TutorPage: React.FC = () => {
   const [showLearningContext, setShowLearningContext] = useState<boolean>(false);
   const [learningContextText, setLearningContextText] = useState<string>("");
   const [selectedMode, setSelectedMode] = useState<"default" | "explain_simpler" | "give_example" | "test_me">("default");
+
+  const [learningProgress, setLearningProgress] = useState<LearningProgressItem | null>(null);
+
+  useEffect(() => {
+    if (selectedProjectId) {
+      assessmentService
+        .getLearningProgress(selectedProjectId)
+        .then((res) => setLearningProgress(res))
+        .catch(() => setLearningProgress(null));
+    }
+  }, [selectedProjectId]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -70,15 +84,16 @@ export const TutorPage: React.FC = () => {
   // 2. Fetch conversations when selected project changes
   const fetchConversations = useCallback(async () => {
     if (!selectedProjectId) return;
-    setLoading(true);
+    setConversations((prev) => {
+      if (prev.length === 0) setLoading(true);
+      return prev;
+    });
     setError(null);
-    setActiveConvId("");
-    setMessages([]);
     try {
       const list = await tutorService.listConversations(selectedProjectId);
       setConversations(list);
       if (list.length > 0) {
-        setActiveConvId(list[0].id);
+        setActiveConvId((prev) => prev || list[0].id);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load conversations.");
@@ -351,6 +366,62 @@ export const TutorPage: React.FC = () => {
 
         {/* Message Stream View */}
         <div className="flex-1 p-6 overflow-y-auto space-y-6">
+          {learningProgress && (
+            <div className="bg-gradient-to-r from-indigo-950/70 via-slate-900/90 to-slate-900/70 border border-indigo-500/30 rounded-2xl p-4 shadow-lg space-y-3 shrink-0">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center space-x-2 text-indigo-400">
+                  <BrainCircuit className="w-5 h-5 text-indigo-400 shrink-0" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Sequential Material Syllabus Journey</span>
+                </div>
+                <div className="text-xs font-semibold text-slate-300">
+                  Topic {learningProgress.current_position} of {learningProgress.total_concepts}:{" "}
+                  <span className="text-indigo-400 font-bold">{learningProgress.current_concept_id}</span>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-indigo-500 via-indigo-400 to-emerald-400 h-2 rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.max(5, (learningProgress.current_position / learningProgress.total_concepts) * 100)
+                    )}%`,
+                  }}
+                />
+              </div>
+
+              {/* Quick Action Buttons for Sequential Guidance */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  onClick={() =>
+                    handleSendMessage(
+                      `Please teach me Topic ${learningProgress.current_position} ('${learningProgress.current_concept_id}') step-by-step from my uploaded project study materials. Start from foundational principles and guide me through to practical examples.`
+                    )
+                  }
+                  disabled={sending}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-md shadow-indigo-600/20"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>Teach Current Topic Step-by-Step</span>
+                </button>
+                <button
+                  onClick={() =>
+                    handleSendMessage(
+                      `What is the next topic after '${learningProgress.current_concept_id}' in my uploaded project materials syllabus? Guide me through it sequentially.`
+                    )
+                  }
+                  disabled={sending}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5"
+                >
+                  <span>Continue Syllabus</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm rounded-xl flex items-center justify-between">
               <span className="flex items-center space-x-2">

@@ -1,5 +1,6 @@
 import { authService } from "./authService";
 import { buildUrl, parseApiResponse } from "@/lib/apiClient";
+import { fetchWithCache, invalidateCache } from "./apiCache";
 
 export interface ProjectItem {
   id: string;
@@ -45,26 +46,33 @@ export const projectsService = {
     page = 1,
     limit = 20
   ): Promise<PaginatedProjects> {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (spaceId) params.append("space_id", spaceId);
-    if (statusFilter) params.append("status", statusFilter);
-    if (search) params.append("search", search);
+    const key = `projects:${spaceId || ""}:${statusFilter || ""}:${search || ""}:${page}:${limit}`;
+    return fetchWithCache(
+      key,
+      async () => {
+        const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (spaceId) params.append("space_id", spaceId);
+        if (statusFilter) params.append("status", statusFilter);
+        if (search) params.append("search", search);
 
-    const response = await fetch(buildUrl(`/api/v1/projects?${params.toString()}`), {
-      headers: { ...authService.getAuthHeaders() },
-    });
+        const response = await fetch(buildUrl(`/api/v1/projects?${params.toString()}`), {
+          headers: { ...authService.getAuthHeaders() },
+        });
 
-    if (response.status === 401) {
-      authService.clearToken();
-      window.location.href = "/login";
-      throw new Error("Session expired. Please sign in again.");
-    }
+        if (response.status === 401) {
+          authService.clearToken();
+          window.location.href = "/login";
+          throw new Error("Session expired. Please sign in again.");
+        }
 
-    const result = await parseApiResponse<PaginatedProjects>(response, "Failed to fetch projects");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to fetch projects.");
-    }
-    return result.data;
+        const result = await parseApiResponse<PaginatedProjects>(response, "Failed to fetch projects");
+        if (!result.success || !result.data) {
+          throw new Error(result.error?.message || "Failed to fetch projects.");
+        }
+        return result.data;
+      },
+      15000
+    );
   },
 
   async createProject(payload: CreateProjectPayload): Promise<ProjectItem> {
@@ -81,19 +89,27 @@ export const projectsService = {
     if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to create project.");
     }
+    invalidateCache("projects:");
+    invalidateCache("analytics:");
     return result.data;
   },
 
   async getProject(projectId: string): Promise<ProjectItem> {
-    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}`), {
-      headers: { ...authService.getAuthHeaders() },
-    });
+    return fetchWithCache(
+      `project:${projectId}`,
+      async () => {
+        const response = await fetch(buildUrl(`/api/v1/projects/${projectId}`), {
+          headers: { ...authService.getAuthHeaders() },
+        });
 
-    const result = await parseApiResponse<ProjectItem>(response, "Failed to fetch project details");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to fetch project details.");
-    }
-    return result.data;
+        const result = await parseApiResponse<ProjectItem>(response, "Failed to fetch project details");
+        if (!result.success || !result.data) {
+          throw new Error(result.error?.message || "Failed to fetch project details.");
+        }
+        return result.data;
+      },
+      15000
+    );
   },
 
   async updateProject(projectId: string, payload: UpdateProjectPayload): Promise<ProjectItem> {
@@ -110,6 +126,9 @@ export const projectsService = {
     if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to update project.");
     }
+    invalidateCache("projects:");
+    invalidateCache(`project:${projectId}`);
+    invalidateCache("analytics:");
     return result.data;
   },
 
@@ -123,7 +142,9 @@ export const projectsService = {
     if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to archive project.");
     }
+    invalidateCache("projects:");
+    invalidateCache(`project:${projectId}`);
+    invalidateCache("analytics:");
     return result.data;
   },
 };
-

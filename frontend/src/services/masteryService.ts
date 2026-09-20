@@ -61,14 +61,16 @@ export interface GrowthSnapshotItem {
 
 export const masteryService = {
   listMasteries: async (projectId: string): Promise<ConceptMasteryItem[]> => {
-    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/mastery`), {
-      headers: { ...authService.getAuthHeaders() },
-    });
-    const result = await parseApiResponse<ConceptMasteryItem[]>(res, "Failed to fetch concept masteries");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to fetch concept masteries.");
-    }
-    return result.data;
+    return fetchWithCache(`mastery:${projectId}`, async () => {
+      const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/mastery`), {
+        headers: { ...authService.getAuthHeaders() },
+      });
+      const result = await parseApiResponse<ConceptMasteryItem[]>(res, "Failed to fetch concept masteries");
+      if (!result.success || !result.data) {
+        throw new Error(result.error?.message || "Failed to fetch concept masteries.");
+      }
+      return result.data;
+    }, 15000);
   },
 
   getExplanation: async (projectId: string, conceptId: string): Promise<MasteryExplanationItem> => {
@@ -96,14 +98,16 @@ export const masteryService = {
   },
 
   getGrowthSnapshots: async (projectId: string): Promise<GrowthSnapshotItem[]> => {
-    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/growth/snapshots`), {
-      headers: { ...authService.getAuthHeaders() },
-    });
-    const result = await parseApiResponse<GrowthSnapshotItem[]>(res, "Failed to fetch growth snapshots");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to fetch growth snapshots.");
-    }
-    return result.data;
+    return fetchWithCache(`snapshots:${projectId}`, async () => {
+      const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/growth/snapshots`), {
+        headers: { ...authService.getAuthHeaders() },
+      });
+      const result = await parseApiResponse<GrowthSnapshotItem[]>(res, "Failed to fetch growth snapshots");
+      if (!result.success || !result.data) {
+        throw new Error(result.error?.message || "Failed to fetch growth snapshots.");
+      }
+      return result.data;
+    }, 15000);
   },
 };
 

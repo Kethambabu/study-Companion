@@ -12,6 +12,7 @@ import { MaterialsPage } from "@/pages/MaterialsPage";
 import { TutorPage } from "@/pages/TutorPage";
 import { AssessmentPage } from "@/pages/AssessmentPage";
 import { GrowthPage } from "@/pages/GrowthPage";
+import { MasteryPage } from "@/pages/MasteryPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
@@ -78,8 +79,8 @@ export const AppRouter: React.FC = () => {
             <Route path="materials" element={<MaterialsPage />} />
             <Route path="tutor" element={<TutorPage />} />
             <Route path="assessment" element={<AssessmentPage />} />
-            <Route path="growth" element={<GrowthPage initialTab="growth" />} />
-            <Route path="mastery" element={<GrowthPage initialTab="mastery" />} />
+            <Route path="growth" element={<GrowthPage />} />
+            <Route path="mastery" element={<MasteryPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<NotFoundPage />} />

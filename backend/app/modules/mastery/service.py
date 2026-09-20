@@ -460,6 +460,15 @@ class MasteryService:
         return masteries
 
     async def get_user_masteries(self, user_id: uuid.UUID) -> list[ConceptMastery]:
-        all_m = await self.get_all_masteries()
-        return [m for m in all_m if m.user_id == user_id]
+        matched_map: dict[str, ConceptMastery] = {k: v for k, v in _IN_MEMORY_MASTERY.items() if v.user_id == user_id}
+        if self.db is not None:
+            try:
+                from sqlalchemy import select
+                stmt = select(ConceptMastery).where(ConceptMastery.user_id == user_id)
+                res = await self.db.execute(stmt)
+                for item in res.scalars().all():
+                    matched_map[str(item.id)] = item
+            except Exception:
+                pass
+        return list(matched_map.values())
 

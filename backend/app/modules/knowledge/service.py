@@ -128,21 +128,23 @@ class KnowledgeService:
     def _extract_concepts_from_chunks(
         self, project_id: uuid.UUID, material_id: uuid.UUID, chunks: list[KnowledgeChunk]
     ) -> list[Concept]:
-        """Extracts key domain concepts dynamically from chunk text, builds relationship graph and material links."""
-        from app.modules.knowledge.models import ConceptRelationship, MaterialConceptLink
-
-        concept_candidates = set()
-        created_concepts: list[Concept] = []
-        for chunk in chunks:
-            # Find capitalized multi-word or term patterns
+        """Extracts key domain concepts dynamically from chunk text in chronological page order."""
+        ordered_candidates: list[str] = []
+        seen = set()
+        # Sort chunks chronologically by page number and chunk index
+        sorted_chunks = sorted(chunks, key=lambda c: (getattr(c, "page_number", 1), getattr(c, "chunk_index", 0)))
+        for chunk in sorted_chunks:
             found = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", chunk.content)
             for term in found:
                 term_clean = term.strip()
                 if len(term_clean) > 3 and term_clean.lower() not in {"the", "this", "page", "quantum", "chapter", "section"}:
-                    concept_candidates.add(term_clean)
+                    if term_clean.lower() not in seen:
+                        seen.add(term_clean.lower())
+                        ordered_candidates.append(term_clean)
 
-        concept_list = list(concept_candidates)[:10]  # Limit top 10 per indexing batch
-        prev_concept: Concept | None = None
+        concept_list = ordered_candidates[:12]  # Keep sequential syllabus topics
+        created_concepts: list[Concept] = []
+        import time
 
         for idx, concept_name in enumerate(concept_list):
             cid_str = f"{project_id}_{concept_name.lower()}"
@@ -160,8 +162,6 @@ class KnowledgeService:
                 created_concepts.append(c)
             else:
                 c = _IN_MEMORY_CONCEPTS[cid_str]
-
-            prev_concept = c
 
         return created_concepts
 
@@ -271,6 +271,8 @@ class KnowledgeService:
 
         # Stage 5: Threshold Filtering & Top-K Selection
         selected = [r for r in reranked if r.final_score >= threshold][:top_k]
+        if not selected and reranked:
+            selected = [r for r in reranked if r.final_score >= 0.15][:top_k]
 
         # Debug Logging for PRD Audit
         logger.info(
@@ -369,6 +371,7 @@ class KnowledgeService:
                 pass
 
         matched = list(matched_map.values())
+        matched.sort(key=lambda x: getattr(x, "created_at", datetime.now(UTC)))
         return [
             ConceptResponse(
                 id=c.id,

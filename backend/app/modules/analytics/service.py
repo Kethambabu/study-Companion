@@ -19,6 +19,8 @@ from app.modules.mastery.service import MasteryService
 from app.modules.materials.service import MaterialsService
 from app.modules.projects.service import ProjectsService
 
+_ANALYTICS_CACHE: dict[str, tuple[float, Any]] = {}
+
 
 class AnalyticsService:
     """Production Analytics Aggregation Engine for Project & Global Metrics."""
@@ -35,6 +37,14 @@ class AnalyticsService:
     ) -> ProjectAnalyticsResponse:
         u_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
         p_id = uuid.UUID(project_id) if isinstance(project_id, str) else project_id
+
+        cache_key = f"proj_analytics:{u_id}:{p_id}"
+        import time
+        now_ts = time.time()
+        if cache_key in _ANALYTICS_CACHE:
+            ts, cached_val = _ANALYTICS_CACHE[cache_key]
+            if now_ts - ts < 15.0:
+                return cached_val
 
         proj = await self.projects_service.get_project(p_id)
         has_access = await self.auth_service.check_space_access(
@@ -146,6 +156,8 @@ class AnalyticsService:
             ai_tutor_interactions=34,
             ai_average_response_time_seconds=2.1,
         )
+        _ANALYTICS_CACHE[cache_key] = (now_ts, resp)
+        return resp
 
     async def get_global_analytics(self) -> GlobalAnalyticsResponse:
         from app.modules.auth.service import (
@@ -262,10 +274,37 @@ class AnalyticsService:
         from app.modules.projects.service import _IN_MEMORY_PROJECTS
 
         u_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-        user_projects = [
-            p for p in _IN_MEMORY_PROJECTS.values()
-            if getattr(p, "owner_id", getattr(p, "user_id", None)) == u_id
-        ]
+        u_str = str(u_id)
+
+        cache_key = f"student_global_analytics:{u_id}"
+        import time
+        now_ts = time.time()
+        if cache_key in _ANALYTICS_CACHE:
+            ts, cached_val = _ANALYTICS_CACHE[cache_key]
+            if now_ts - ts < 15.0:
+                return cached_val
+
+        user_projects = []
+        if self.db is not None:
+            try:
+                from sqlalchemy import select
+                from app.modules.projects.models import Project
+                from app.modules.auth.service import AuthService
+                auth_service = AuthService(self.db)
+                user_spaces = await auth_service.list_user_spaces(u_id)
+                accessible_space_ids = {sp.id for sp in user_spaces}
+                if accessible_space_ids:
+                    stmt = select(Project).where(Project.space_id.in_(accessible_space_ids))
+                    res = await self.db.execute(stmt)
+                    user_projects = list(res.scalars().all())
+            except Exception:
+                pass
+
+        if not user_projects:
+            user_projects = [
+                p for p in _IN_MEMORY_PROJECTS.values()
+                if str(getattr(p, "owner_id", getattr(p, "user_id", ""))) in (str(u_id), u_str)
+            ]
 
         total_p = len(user_projects)
         completed_p = len([p for p in user_projects if getattr(p, "status", "active") == "archived"])
@@ -283,12 +322,12 @@ class AnalyticsService:
             weak_areas = []
 
         # Real events for this user
-        user_events = [e for e in _IN_MEMORY_EVENTS.values() if getattr(e, "user_id", None) == u_id]
+        user_events = [e for e in _IN_MEMORY_EVENTS.values() if str(getattr(e, "user_id", "")) in (str(u_id), u_str)]
         sorted_events = sorted(user_events, key=lambda x: getattr(x, "created_at", datetime.now(UTC)), reverse=True)[:5]
 
         # Calculate study time from user events
-        quiz_count = sum(1 for e in user_events if e.event_type in ("quiz_completed", "quiz_started"))
-        tutor_count = sum(1 for e in user_events if e.event_type == "tutor_interaction")
+        quiz_count = sum(1 for e in user_events if getattr(e, "event_type", "") in ("quiz_completed", "quiz_started"))
+        tutor_count = sum(1 for e in user_events if getattr(e, "event_type", "") == "tutor_interaction")
         total_mins = quiz_count * 15 + tutor_count * 5 + len(user_events) * 2
         hours = total_mins // 60
         mins = total_mins % 60
@@ -296,15 +335,15 @@ class AnalyticsService:
 
         recent_act = [
             {
-                "event_type": e.event_type,
-                "title": getattr(e, "title", f"{e.event_type.replace('_', ' ').title()} action"),
+                "event_type": getattr(e, "event_type", "activity"),
+                "title": getattr(e, "title", f"{getattr(e, 'event_type', 'activity').replace('_', ' ').title()} action"),
                 "project_name": getattr(e, "project_name", "Project"),
-                "timestamp": e.created_at.isoformat() if isinstance(e.created_at, datetime) else str(e.created_at),
+                "timestamp": getattr(e, "created_at", datetime.now(UTC)).isoformat() if isinstance(getattr(e, "created_at", None), datetime) else str(getattr(e, "created_at", "")),
             }
             for e in sorted_events
         ]
 
-        return StudentGlobalAnalyticsResponse(
+        resp = StudentGlobalAnalyticsResponse(
             total_projects=total_p,
             completed_projects=completed_p,
             active_projects=active_p,
@@ -314,6 +353,8 @@ class AnalyticsService:
             areas_to_improve=weak_areas,
             recent_activity=recent_act,
         )
+        _ANALYTICS_CACHE[cache_key] = (now_ts, resp)
+        return resp
 
     async def get_full_analytics_bundle(
         self, user_id: uuid.UUID | str, project_id: uuid.UUID | str

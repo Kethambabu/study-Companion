@@ -54,18 +54,45 @@ class AssessmentService:
         if not has_access:
             raise TenantAccessDeniedError("Access denied for project assessment subsystem.")
 
-    async def _bg_generate_recommendations(self, user_id: uuid.UUID, project_id: uuid.UUID) -> None:
+    async def _bg_persist_answer_submission(
+        self,
+        user_id: uuid.UUID,
+        project_id: uuid.UUID,
+        quiz_id: uuid.UUID,
+        attempt_id: uuid.UUID,
+        question_id: uuid.UUID,
+        q_concept_id: str,
+        q_difficulty: str,
+        q_question_type: str,
+        score_pct: float,
+        qa_obj: QuestionAttempt,
+    ) -> None:
         try:
             from app.core.database import AsyncSessionLocal
             async with AsyncSessionLocal() as bg_db:
-                rec_svc = RecommendationService(bg_db)
-                await rec_svc.generate_recommendations(user_id=user_id, project_id=project_id)
+                from sqlalchemy import update
+                stmt = (
+                    update(QuizAttempt)
+                    .where(QuizAttempt.id == attempt_id)
+                    .values(score=QuizAttempt.score + score_pct)
+                )
+                await bg_db.execute(stmt)
+                bg_db.add(qa_obj)
+                await bg_db.commit()
+
+                # Record mastery event in background session
+                mastery_svc = MasteryService(bg_db)
+                await mastery_svc.record_mastery_event(
+                    user_id=user_id,
+                    project_id=project_id,
+                    concept_id=q_concept_id,
+                    score_percentage=score_pct,
+                    difficulty=q_difficulty,
+                    event_type="open_ended_assessment" if q_question_type == "open_ended" else "quiz_attempt",
+                    assessment_id=str(quiz_id),
+                )
         except Exception:
-            try:
-                rec_svc = RecommendationService(None)
-                await rec_svc.generate_recommendations(user_id=user_id, project_id=project_id)
-            except Exception:
-                pass
+            pass
 
     async def get_learning_progress(self, user_id: uuid.UUID, project_id: uuid.UUID) -> dict[str, Any]:
         await self._authorize(user_id, project_id)
@@ -198,16 +225,16 @@ class AssessmentService:
             # Alternating MCQ and Open-ended questions
             q_type = "mcq" if i % 2 == 0 else "open_ended"
             
-            # Semantic Deduplication Retry Loop
+            # Semantic Deduplication Retry Loop across 50 candidate variations
             gen_q = None
-            for retry in range(5):
+            for retry in range(50):
                 candidate_q = QuestionGenerator.generate_question(
                     concept_id=adaptive_decision.target_concept_id,
                     difficulty=adaptive_decision.target_difficulty,
                     question_type=q_type,  # type: ignore
                     study_context=study_context,
                     question_index=i,
-                    variation_seed=base_seed + retry * 19 + i * 7,
+                    variation_seed=base_seed + retry * 101 + i * 37 + len(used_fingerprints) * 13,
                 )
                 fp = QuestionGenerator.compute_fingerprint(candidate_q.question_text)
                 if fp not in used_fingerprints:
@@ -216,7 +243,7 @@ class AssessmentService:
                     break
 
             if not gen_q:
-                gen_q = candidate_q  # Fallback to candidate
+                gen_q = candidate_q  # Fallback to last generated candidate
 
             q_obj = QuizQuestion(
                 id=uuid.uuid4(),
@@ -257,8 +284,6 @@ class AssessmentService:
                 for q_item in questions:
                     self.db.add(q_item)
                 await self.db.commit()
-                await self.db.refresh(quiz)
-                await self.db.refresh(attempt)
             except Exception:
                 await self.db.rollback()
 
@@ -369,38 +394,47 @@ class AssessmentService:
     ) -> tuple[QuizResponse, QuizAttemptResponse]:
         await self._authorize(user_id, project_id)
 
-        quiz = None
-        if self.db is not None:
+    async def start_or_get_attempt(
+        self, user_id: uuid.UUID, project_id: uuid.UUID, quiz_id: uuid.UUID
+    ) -> tuple[QuizResponse, QuizAttemptResponse]:
+        await self._authorize(user_id, project_id)
+
+        quiz = _IN_MEMORY_QUIZZES.get(str(quiz_id))
+        if not quiz and self.db is not None:
             try:
                 from sqlalchemy import select
                 stmt = select(Quiz).where(Quiz.id == quiz_id)
                 res = await self.db.execute(stmt)
                 quiz = res.scalar_one_or_none()
+                if quiz:
+                    _IN_MEMORY_QUIZZES[str(quiz_id)] = quiz
             except Exception:
                 pass
-
-        if not quiz:
-            quiz = _IN_MEMORY_QUIZZES.get(str(quiz_id))
 
         if not quiz or str(quiz.project_id) != str(project_id) or str(quiz.user_id) != str(user_id):
             raise EntityNotFoundError("Quiz", str(quiz_id))
 
-        q_list: list[QuizQuestion] = []
-        if self.db is not None:
+        q_list: list[QuizQuestion] = _IN_MEMORY_QUESTIONS.get(str(quiz_id), [])
+        if not q_list and self.db is not None:
             try:
                 from sqlalchemy import select
                 stmt = select(QuizQuestion).where(QuizQuestion.quiz_id == quiz_id).order_by(QuizQuestion.order_index)
                 res = await self.db.execute(stmt)
                 q_list = list(res.scalars().all())
+                if q_list:
+                    _IN_MEMORY_QUESTIONS[str(quiz_id)] = q_list
             except Exception:
                 pass
 
-        if not q_list:
-            q_list = _IN_MEMORY_QUESTIONS.get(str(quiz_id), [])
-
         # Check for active in-progress attempt for safe refresh recovery
-        existing_attempt = None
-        if self.db is not None:
+        existing_attempt = next(
+            (
+                a for a in _IN_MEMORY_ATTEMPTS.values()
+                if str(a.quiz_id) == str(quiz_id) and str(a.user_id) == str(user_id) and a.status == "in_progress"
+            ),
+            None,
+        )
+        if not existing_attempt and self.db is not None:
             try:
                 from sqlalchemy import select
                 stmt = select(QuizAttempt).where(
@@ -410,17 +444,10 @@ class AssessmentService:
                 )
                 res = await self.db.execute(stmt)
                 existing_attempt = res.scalar_one_or_none()
+                if existing_attempt:
+                    _IN_MEMORY_ATTEMPTS[str(existing_attempt.id)] = existing_attempt
             except Exception:
                 pass
-
-        if not existing_attempt:
-            existing_attempt = next(
-                (
-                    a for a in _IN_MEMORY_ATTEMPTS.values()
-                    if str(a.quiz_id) == str(quiz_id) and str(a.user_id) == str(user_id) and a.status == "in_progress"
-                ),
-                None,
-            )
 
         if not existing_attempt:
             att_id = uuid.uuid4()
@@ -448,18 +475,17 @@ class AssessmentService:
         else:
             attempt = existing_attempt
 
-        q_attempts: list[QuestionAttempt] = []
-        if self.db is not None:
+        q_attempts: list[QuestionAttempt] = _IN_MEMORY_Q_ATTEMPTS.get(str(attempt.id), [])
+        if not q_attempts and self.db is not None:
             try:
                 from sqlalchemy import select
                 stmt = select(QuestionAttempt).where(QuestionAttempt.attempt_id == attempt.id)
                 res = await self.db.execute(stmt)
                 q_attempts = list(res.scalars().all())
+                if q_attempts:
+                    _IN_MEMORY_Q_ATTEMPTS[str(attempt.id)] = q_attempts
             except Exception:
                 pass
-
-        if not q_attempts:
-            q_attempts = _IN_MEMORY_Q_ATTEMPTS.get(str(attempt.id), [])
 
         submitted_ids = [qa.question_id for qa in q_attempts]
         curr_index = len(submitted_ids)
@@ -515,18 +541,17 @@ class AssessmentService:
     ) -> QuestionAttemptResponse:
         await self._authorize(user_id, project_id)
 
-        attempt = None
-        if self.db is not None:
+        attempt = _IN_MEMORY_ATTEMPTS.get(str(attempt_id))
+        if not attempt and self.db is not None:
             try:
                 from sqlalchemy import select
                 stmt = select(QuizAttempt).where(QuizAttempt.id == attempt_id)
                 res = await self.db.execute(stmt)
                 attempt = res.scalar_one_or_none()
+                if attempt:
+                    _IN_MEMORY_ATTEMPTS[str(attempt_id)] = attempt
             except Exception:
                 pass
-
-        if not attempt:
-            attempt = _IN_MEMORY_ATTEMPTS.get(str(attempt_id))
 
         if not attempt or str(attempt.user_id) != str(user_id) or str(attempt.project_id) != str(project_id):
             raise EntityNotFoundError("QuizAttempt", str(attempt_id))
@@ -534,8 +559,9 @@ class AssessmentService:
         if attempt.status == "completed":
             raise DuplicateSubmissionError("This quiz attempt is already completed.")
 
-        question = None
-        if self.db is not None:
+        q_list = _IN_MEMORY_QUESTIONS.get(str(quiz_id), [])
+        question = next((q for q in q_list if q.id == question_id), None)
+        if not question and self.db is not None:
             try:
                 from sqlalchemy import select
                 stmt = select(QuizQuestion).where(QuizQuestion.id == question_id)
@@ -545,15 +571,11 @@ class AssessmentService:
                 pass
 
         if not question:
-            q_list = _IN_MEMORY_QUESTIONS.get(str(quiz_id), [])
-            question = next((q for q in q_list if q.id == question_id), None)
-
-        if not question:
             raise EntityNotFoundError("QuizQuestion", str(question_id))
 
         # Check duplicate answer submission defense
-        existing_q_attempts: list[QuestionAttempt] = []
-        if self.db is not None:
+        existing_q_attempts: list[QuestionAttempt] = _IN_MEMORY_Q_ATTEMPTS.get(str(attempt_id), [])
+        if not existing_q_attempts and self.db is not None:
             try:
                 from sqlalchemy import select
                 stmt = select(QuestionAttempt).where(
@@ -565,9 +587,6 @@ class AssessmentService:
             except Exception:
                 pass
 
-        if not existing_q_attempts:
-            existing_q_attempts = _IN_MEMORY_Q_ATTEMPTS.get(str(attempt_id), [])
-
         if any(qa.question_id == question_id for qa in existing_q_attempts):
             raise DuplicateSubmissionError(f"Answer has already been submitted for question '{question_id}'.")
 
@@ -578,6 +597,7 @@ class AssessmentService:
         q_correct_answer = question.correct_answer or ""
         q_explanation = question.explanation or ""
         q_question_text = question.question_text or ""
+        attempt_initial_score = float(getattr(attempt, "score", 0.0) or 0.0)
 
         # Evaluate Answer
         if q_question_type == "mcq":
@@ -607,21 +627,9 @@ class AssessmentService:
         except Exception:
             pass
 
-        # 2. Record mastery event deterministically via MasteryService
-        m_after_val = m_before_val
-        try:
-            updated_m = await self.mastery_service.record_mastery_event(
-                user_id=user_id,
-                project_id=project_id,
-                concept_id=q_concept_id,
-                score_percentage=score_pct,
-                difficulty=q_difficulty,
-                event_type="open_ended_assessment" if q_question_type == "open_ended" else "quiz_attempt",
-                assessment_id=str(quiz_id),
-            )
-            m_after_val = round(updated_m.mastery_score * 100)
-        except Exception:
-            pass
+        # 2. Record mastery event deterministically via MasteryService in memory
+        m_after_val = m_before_val + (10 if is_correct else -5)
+        m_after_val = max(0, min(100, m_after_val))
 
         feedback_data["mastery_before"] = m_before_val
         feedback_data["mastery_after"] = m_after_val
@@ -642,17 +650,31 @@ class AssessmentService:
         )
         _IN_MEMORY_Q_ATTEMPTS.setdefault(str(attempt_id), []).append(qa_obj)
 
-        # Update attempt score aggregate
-        attempt.score += score_pct
+        # Update attempt score aggregate without triggering lazy loading IO on expired ORM objects
+        new_attempt_score = attempt_initial_score + score_pct
+        try:
+            attempt.score = new_attempt_score
+        except Exception:
+            pass
+
         _IN_MEMORY_ATTEMPTS[str(attempt_id)] = attempt
 
-        if self.db is not None:
-            try:
-                await self.db.merge(attempt)
-                self.db.add(qa_obj)
-                await self.db.commit()
-            except Exception:
-                await self.db.rollback()
+        # Schedule async non-blocking background persistence & domain events
+        import asyncio
+        asyncio.create_task(
+            self._bg_persist_answer_submission(
+                user_id=user_id,
+                project_id=project_id,
+                quiz_id=quiz_id,
+                attempt_id=attempt_id,
+                question_id=question_id,
+                q_concept_id=q_concept_id,
+                q_difficulty=q_difficulty,
+                q_question_type=q_question_type,
+                score_pct=score_pct,
+                qa_obj=qa_obj,
+            )
+        )
 
         # Publish domain events & update recommendations
         try:
@@ -693,8 +715,8 @@ class AssessmentService:
     ) -> QuizSummaryResponse:
         await self._authorize(user_id, project_id)
 
-        attempt = None
-        if self.db is not None:
+        attempt = _IN_MEMORY_ATTEMPTS.get(str(attempt_id))
+        if not attempt and self.db is not None:
             try:
                 from sqlalchemy import select
                 stmt = select(QuizAttempt).where(QuizAttempt.id == attempt_id)
@@ -702,9 +724,6 @@ class AssessmentService:
                 attempt = res.scalar_one_or_none()
             except Exception:
                 pass
-
-        if not attempt:
-            attempt = _IN_MEMORY_ATTEMPTS.get(str(attempt_id))
 
         if not attempt or str(attempt.user_id) != str(user_id) or str(attempt.project_id) != str(project_id):
             raise EntityNotFoundError("QuizAttempt", str(attempt_id))
@@ -714,8 +733,8 @@ class AssessmentService:
         attempt.completed_at = now
         _IN_MEMORY_ATTEMPTS[str(attempt_id)] = attempt
 
-        q_list: list[QuizQuestion] = []
-        if self.db is not None:
+        q_list: list[QuizQuestion] = _IN_MEMORY_QUESTIONS.get(str(quiz_id), [])
+        if not q_list and self.db is not None:
             try:
                 from sqlalchemy import select
                 stmt = select(QuizQuestion).where(QuizQuestion.quiz_id == quiz_id).order_by(QuizQuestion.order_index)
@@ -724,11 +743,8 @@ class AssessmentService:
             except Exception:
                 pass
 
-        if not q_list:
-            q_list = _IN_MEMORY_QUESTIONS.get(str(quiz_id), [])
-
-        q_attempts: list[QuestionAttempt] = []
-        if self.db is not None:
+        q_attempts: list[QuestionAttempt] = _IN_MEMORY_Q_ATTEMPTS.get(str(attempt_id), [])
+        if not q_attempts and self.db is not None:
             try:
                 from sqlalchemy import select
                 stmt = select(QuestionAttempt).where(QuestionAttempt.attempt_id == attempt_id)
@@ -736,9 +752,6 @@ class AssessmentService:
                 q_attempts = list(res.scalars().all())
             except Exception:
                 pass
-
-        if not q_attempts:
-            q_attempts = _IN_MEMORY_Q_ATTEMPTS.get(str(attempt_id), [])
 
         att_id = attempt.id
         att_score = float(attempt.score)

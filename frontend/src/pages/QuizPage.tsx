@@ -65,14 +65,11 @@ export const QuizPage: React.FC = () => {
 
   const fetchProjects = useCallback(async () => {
     try {
-      setLoading(true);
       const list = await projectsService.listProjects();
       const items = list.items || [];
       setProjects(items);
       if (items.length > 0) {
-        setSelectedProjectId(items[0].id);
-        fetchGrowthSummary(items[0].id);
-        fetchLearningProgress(items[0].id);
+        setSelectedProjectId((prevId) => prevId || items[0].id);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to load projects.";
@@ -80,11 +77,18 @@ export const QuizPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [fetchGrowthSummary, fetchLearningProgress]);
+  }, []);
 
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
+
+  useEffect(() => {
+    if (selectedProjectId) {
+      fetchGrowthSummary(selectedProjectId);
+      fetchLearningProgress(selectedProjectId);
+    }
+  }, [selectedProjectId, fetchGrowthSummary, fetchLearningProgress]);
 
   const handleStartQuiz = async () => {
     if (!selectedProjectId) return;

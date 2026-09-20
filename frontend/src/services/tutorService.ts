@@ -1,4 +1,5 @@
 import { authService } from "./authService";
+import { fetchWithCache } from "./apiCache";
 import { buildUrl, parseApiResponse } from "@/lib/apiClient";
 
 export interface ConversationItem {
@@ -78,15 +79,17 @@ export const tutorService = {
   },
 
   async listConversations(projectId: string): Promise<ConversationItem[]> {
-    const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/tutor/conversations`), {
-      headers: { ...authService.getAuthHeaders() },
-    });
+    return fetchWithCache(`tutor:conversations:${projectId}`, async () => {
+      const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/tutor/conversations`), {
+        headers: { ...authService.getAuthHeaders() },
+      });
 
-    const result = await parseApiResponse<ConversationItem[]>(response, "Failed to list conversations");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to list conversations.");
-    }
-    return result.data;
+      const result = await parseApiResponse<ConversationItem[]>(response, "Failed to list conversations");
+      if (!result.success || !result.data) {
+        throw new Error(result.error?.message || "Failed to list conversations.");
+      }
+      return result.data;
+    }, 15000);
   },
 
   async getMessages(
@@ -136,18 +139,20 @@ export const tutorService = {
   },
 
   async getLearningContext(projectId: string): Promise<string> {
-    try {
-      const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/tutor/learning-context`), {
-        headers: { ...authService.getAuthHeaders() },
-      });
-      const result = await parseApiResponse<{ learning_context: string }>(response, "Failed to fetch learning context");
-      if (!result.success || !result.data) {
+    return fetchWithCache(`tutor:context:${projectId}`, async () => {
+      try {
+        const response = await fetch(buildUrl(`/api/v1/projects/${projectId}/tutor/learning-context`), {
+          headers: { ...authService.getAuthHeaders() },
+        });
+        const result = await parseApiResponse<{ learning_context: string }>(response, "Failed to fetch learning context");
+        if (!result.success || !result.data) {
+          return "Learner Context: Target mastery goals and active course practice.";
+        }
+        return result.data.learning_context;
+      } catch {
         return "Learner Context: Target mastery goals and active course practice.";
       }
-      return result.data.learning_context;
-    } catch {
-      return "Learner Context: Target mastery goals and active course practice.";
-    }
+    }, 15000);
   },
 
   async streamMessage(

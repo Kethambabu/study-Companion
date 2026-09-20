@@ -44,7 +44,20 @@ class SpacesService:
     ) -> PaginatedSpacesResponse:
         matched: list[tuple[Space, str]] = []
 
-        if self.db:
+        # 1. Check in-memory repository first for fast 0ms response
+        for space_id, members in _IN_MEMORY_MEMBERS.items():
+            for m in members:
+                if m.user_id == user_id:
+                    sp = _IN_MEMORY_SPACES.get(space_id)
+                    if sp and not sp.archived_at:
+                        if search:
+                            term = search.lower()
+                            if term not in sp.name.lower() and (not sp.description or term not in sp.description.lower()):
+                                continue
+                        matched.append((sp, m.role))
+
+        # 2. Query database if memory cache yielded no spaces
+        if not matched and self.db:
             try:
                 from sqlalchemy import select, or_
                 from app.modules.auth.models import SpaceMember
@@ -59,23 +72,16 @@ class SpacesService:
                     stmt = stmt.where(or_(Space.name.ilike(term), Space.description.ilike(term)))
 
                 res = await self.db.execute(stmt)
-                matched = [(row[0], row[1]) for row in res.all()]
+                for sp, role in res.all():
+                    matched.append((sp, role))
+                    _IN_MEMORY_SPACES[str(sp.id)] = sp
+                    if str(sp.id) not in _IN_MEMORY_MEMBERS:
+                        _IN_MEMORY_MEMBERS[str(sp.id)] = []
+                    if not any(m.user_id == user_id for m in _IN_MEMORY_MEMBERS[str(sp.id)]):
+                        _IN_MEMORY_MEMBERS[str(sp.id)].append(SpaceMember(id=uuid.uuid4(), space_id=sp.id, user_id=user_id, role=role))
             except Exception as err:
                 import logging
                 logging.warning(f"Database list_spaces query failed ({err}). Operating in in-memory mode.")
-                matched = []
-
-        if not matched:
-            for space_id, members in _IN_MEMORY_MEMBERS.items():
-                for m in members:
-                    if m.user_id == user_id:
-                        sp = _IN_MEMORY_SPACES.get(space_id)
-                        if sp and not sp.archived_at:
-                            if search:
-                                term = search.lower()
-                                if term not in sp.name.lower() and (not sp.description or term not in sp.description.lower()):
-                                    continue
-                            matched.append((sp, m.role))
 
 
         total = len(matched)

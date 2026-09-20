@@ -20,7 +20,7 @@ export const MaterialsPage: React.FC = () => {
   const [selectedMaterial, setSelectedMaterial] = useState<MaterialItem | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  // Initial projects fetch
+  // Initial projects fetch with caching
   useEffect(() => {
     projectsService
       .listProjects(undefined, "active", undefined, 1, 100)
@@ -31,14 +31,17 @@ export const MaterialsPage: React.FC = () => {
   }, []);
 
   const fetchMaterials = useCallback(async () => {
-    setLoading(true);
+    setMaterials((prev) => {
+      if (prev.length === 0) setLoading(true);
+      return prev;
+    });
     setError(null);
     try {
       const res = await materialsService.listMaterials(
         selectedProjectId || undefined,
         search.trim() || undefined
       );
-      setMaterials(res.items);
+      setMaterials(res?.items || []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load materials.");
     } finally {
@@ -70,7 +73,7 @@ export const MaterialsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-100 flex items-center gap-2">
             <FileText className="w-6 h-6 text-indigo-400" />
-            <span>Study Materials & Document Extraction</span>
+            <span>Study Materials &amp; Document Extraction</span>
           </h1>
           <p className="text-sm text-slate-400 mt-1">
             Upload PDF documents for PyMuPDF text extraction, OCR fallback, and structured page parsing.
@@ -156,7 +159,7 @@ export const MaterialsPage: React.FC = () => {
       </div>
 
       {/* Main Content Area */}
-      {loading ? (
+      {loading && materials.length === 0 ? (
         <LoadingState message="Loading study materials..." />
       ) : error ? (
         <ErrorState title="Failed to load materials" message={error} onRetry={fetchMaterials} />
@@ -190,7 +193,7 @@ export const MaterialsPage: React.FC = () => {
                     {mat.status}
                   </span>
                   <span className="text-xs text-slate-500 font-mono">
-                    {(mat.file_size / (1024 * 1024)).toFixed(2)} MB
+                    {((mat.file_size || 0) / (1024 * 1024)).toFixed(2)} MB
                   </span>
                 </div>
 
@@ -237,7 +240,7 @@ export const MaterialsPage: React.FC = () => {
               <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
                 <span className="flex items-center gap-1">
                   <Layers className="w-3.5 h-3.5 text-indigo-400" />
-                  {mat.page_count} Pages
+                  {mat.page_count || 0} Pages
                 </span>
                 <span className="text-indigo-400 font-semibold group-hover:translate-x-1 transition">
                   Details &rarr;
@@ -251,6 +254,7 @@ export const MaterialsPage: React.FC = () => {
       <UploadMaterialModal
         isOpen={isUploadOpen}
         defaultProjectId={selectedProjectId || undefined}
+        availableProjects={projects}
         onClose={() => setIsUploadOpen(false)}
         onSuccess={fetchMaterials}
       />

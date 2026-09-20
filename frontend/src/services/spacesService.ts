@@ -1,6 +1,6 @@
 import { authService } from "./authService";
 import { buildUrl, parseApiResponse } from "@/lib/apiClient";
-
+import { fetchWithCache, invalidateCache } from "./apiCache";
 
 export interface SpaceVisualMetadata {
   icon?: string;
@@ -30,24 +30,31 @@ export interface PaginatedSpaces {
 
 export const spacesService = {
   async listSpaces(search?: string, page = 1, limit = 20): Promise<PaginatedSpaces> {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (search) params.append("search", search);
+    const key = `spaces:${search || ""}:${page}:${limit}`;
+    return fetchWithCache(
+      key,
+      async () => {
+        const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (search) params.append("search", search);
 
-    const response = await fetch(buildUrl(`/api/v1/spaces?${params.toString()}`), {
-      headers: { ...authService.getAuthHeaders() },
-    });
+        const response = await fetch(buildUrl(`/api/v1/spaces?${params.toString()}`), {
+          headers: { ...authService.getAuthHeaders() },
+        });
 
-    if (response.status === 401) {
-      authService.clearToken();
-      window.location.href = "/login";
-      throw new Error("Session expired. Please sign in again.");
-    }
+        if (response.status === 401) {
+          authService.clearToken();
+          window.location.href = "/login";
+          throw new Error("Session expired. Please sign in again.");
+        }
 
-    const result = await parseApiResponse<PaginatedSpaces>(response, "Failed to fetch spaces");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to fetch spaces.");
-    }
-    return result.data;
+        const result = await parseApiResponse<PaginatedSpaces>(response, "Failed to fetch spaces");
+        if (!result.success || !result.data) {
+          throw new Error(result.error?.message || "Failed to fetch spaces.");
+        }
+        return result.data;
+      },
+      15000
+    );
   },
 
   async createSpace(name: string, slug: string, description?: string, visual_metadata?: SpaceVisualMetadata): Promise<SpaceItem> {
@@ -64,19 +71,27 @@ export const spacesService = {
     if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to create space.");
     }
+    invalidateCache("spaces:");
+    invalidateCache("analytics:");
     return result.data;
   },
 
   async getSpace(spaceId: string): Promise<SpaceItem> {
-    const response = await fetch(buildUrl(`/api/v1/spaces/${spaceId}`), {
-      headers: { ...authService.getAuthHeaders() },
-    });
+    return fetchWithCache(
+      `space:${spaceId}`,
+      async () => {
+        const response = await fetch(buildUrl(`/api/v1/spaces/${spaceId}`), {
+          headers: { ...authService.getAuthHeaders() },
+        });
 
-    const result = await parseApiResponse<SpaceItem>(response, "Failed to load space details");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to load space details.");
-    }
-    return result.data;
+        const result = await parseApiResponse<SpaceItem>(response, "Failed to load space details");
+        if (!result.success || !result.data) {
+          throw new Error(result.error?.message || "Failed to load space details.");
+        }
+        return result.data;
+      },
+      15000
+    );
   },
 
   async updateSpace(spaceId: string, payload: { name?: string; description?: string; visual_metadata?: SpaceVisualMetadata }): Promise<SpaceItem> {
@@ -93,6 +108,8 @@ export const spacesService = {
     if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to update space.");
     }
+    invalidateCache("spaces:");
+    invalidateCache(`space:${spaceId}`);
     return result.data;
   },
 
@@ -106,7 +123,8 @@ export const spacesService = {
     if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to archive space.");
     }
+    invalidateCache("spaces:");
+    invalidateCache(`space:${spaceId}`);
     return result.data;
   },
 };
-

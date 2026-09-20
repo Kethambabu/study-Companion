@@ -19,11 +19,14 @@ export const SpacesPage: React.FC = () => {
   const [archiving, setArchiving] = useState(false);
 
   const fetchSpaces = useCallback(async () => {
-    setLoading(true);
+    setSpaces((prev) => {
+      if (prev.length === 0) setLoading(true);
+      return prev;
+    });
     setError(null);
     try {
       const res = await spacesService.listSpaces(search.trim() || undefined);
-      setSpaces(res.items);
+      setSpaces(res?.items || []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load spaces.");
     } finally {
@@ -86,7 +89,7 @@ export const SpacesPage: React.FC = () => {
         </div>
       </div>
 
-      {loading ? (
+      {loading && spaces.length === 0 ? (
         <LoadingState message="Loading your spaces..." />
       ) : error ? (
         <ErrorState title="Failed to load spaces" message={error} onRetry={fetchSpaces} />

@@ -20,7 +20,9 @@ export const ProjectsPage: React.FC = () => {
   const [archiving, setArchiving] = useState(false);
 
   const fetchProjects = useCallback(async () => {
-    setLoading(true);
+    if (projects.length === 0) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const res = await projectsService.listProjects(
@@ -34,7 +36,7 @@ export const ProjectsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter]);
+  }, [search, statusFilter, projects.length]);
 
   useEffect(() => {
     fetchProjects();
@@ -107,7 +109,7 @@ export const ProjectsPage: React.FC = () => {
         </div>
       </div>
 
-      {loading ? (
+      {loading && projects.length === 0 ? (
         <LoadingState message="Loading projects..." />
       ) : error ? (
         <ErrorState title="Failed to load projects" message={error} onRetry={fetchProjects} />

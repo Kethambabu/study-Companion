@@ -30,7 +30,10 @@ export const SpaceDashboardPage: React.FC = () => {
 
   const loadData = useCallback(async () => {
     if (!spaceId) return;
-    setLoading(true);
+    setSpace((prev) => {
+      if (!prev) setLoading(true);
+      return prev;
+    });
     setError(null);
     try {
       const [spaceData, projectsData] = await Promise.all([

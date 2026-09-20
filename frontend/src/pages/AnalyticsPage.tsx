@@ -32,21 +32,20 @@ export const AnalyticsPage: React.FC = () => {
 
   const fetchProjects = useCallback(async () => {
     try {
-      setLoading(true);
       const list = await projectsService.listProjects();
       const items = list.items || [];
       setProjects(items);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to load projects.";
       setError(msg);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
   const fetchAnalytics = useCallback(async () => {
     try {
-      setLoading(true);
+      if (!studentGlobalAnalytics && !projectAnalytics) {
+        setLoading(true);
+      }
       setError(null);
 
       if (viewMode === "global" || selectedProjectId === "global") {

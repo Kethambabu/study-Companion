@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 
 def compute_question_fingerprint(question_text: str) -> str:
     """Computes a normalized text hash fingerprint for semantic duplicate detection."""
-    clean_text = re.sub(r"[^\w\s]", "", question_text.lower()).strip()
+    clean = re.sub(r"\[ref-\w+\]", "", question_text, flags=re.IGNORECASE)
+    clean = re.sub(r"\(focus:.*?\)", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\(depth:.*?\)", "", clean, flags=re.IGNORECASE)
+    clean_text = re.sub(r"[^\w\s]", "", clean.lower()).strip()
     return hashlib.sha256(clean_text.encode("utf-8")).hexdigest()[:32]
 
 
@@ -40,21 +43,6 @@ class QuestionGenerator:
         if llm_response_override:
             raw_text = llm_response_override
         else:
-            # Extract usable context snippets from material text if provided
-            snippets = [
-                s.strip() for s in (study_context or "").split("\n")
-                if len(s.strip()) > 15 and not s.strip().startswith("Study material")
-            ]
-            
-            if snippets:
-                ctx_idx = (question_index * 3 + variation_seed) % len(snippets)
-                ctx_snippet = snippets[ctx_idx][:100]
-            else:
-                ctx_snippet = (study_context[:100] if study_context else f"fundamental properties of {concept_id}")
-
-            seed_val = (variation_seed * 10007 + question_index * 37 + 13) & 0x7FFFFFFF
-            rng = random.Random(seed_val)
-
             cognitive_stems = [
                 f"Which design principle best governs the application of '{concept_id}'",
                 f"How should an engineer analyze the performance profile of '{concept_id}'",
@@ -71,6 +59,16 @@ class QuestionGenerator:
                 f"How does system scalability impact the behavior of '{concept_id}'",
                 f"Which isolation boundary is recommended when configuring '{concept_id}'",
                 f"What step-by-step mechanism drives the execution of '{concept_id}'",
+                f"Which concurrency control mechanism protects shared resources in '{concept_id}'",
+                f"How should backpressure be managed when processing stream events for '{concept_id}'",
+                f"What strategy ensures zero-downtime database migration when modifying '{concept_id}'",
+                f"Which security validation step is required to prevent injection attacks on '{concept_id}'",
+                f"How does asynchronous execution alter the call stack during invocation of '{concept_id}'",
+                f"Which caching policy minimizes memory churn for frequent reads of '{concept_id}'",
+                f"What telemetry metric provides the earliest signal of degradation in '{concept_id}'",
+                f"How should error handling be structured for idempotent retries of '{concept_id}'",
+                f"Which API design pattern maintains backwards compatibility when updating '{concept_id}'",
+                f"What invariant must hold true across all state transitions in '{concept_id}'",
             ]
 
             scenarios = [
@@ -86,7 +84,18 @@ class QuestionGenerator:
                 "during edge case handling and network partition recovery",
                 "for automated schema evolution and regression testing",
                 "in latency-sensitive batch processing workloads",
+                "during active cluster failover and leader election",
+                "within multi-tenant isolated container environments",
+                "for asynchronous job queue execution and worker polling",
+                "during high-concurrency peak load events",
+                "for cross-region database replication and synchronization",
+                "under strict zero-trust network policy enforcement",
+                "in continuous integration and blue-green deployments",
+                "for event sourcing and immutable audit log retention",
             ]
+
+            seed_val = (variation_seed * 10007 + question_index * 37 + 13) & 0x7FFFFFFF
+            rng = random.Random(seed_val)
 
             stem = rng.choice(cognitive_stems)
             scenario = rng.choice(scenarios)
@@ -100,8 +109,12 @@ class QuestionGenerator:
                     "performance tradeoff",
                     "state integrity",
                     "production monitoring",
+                    "security isolation",
+                    "concurrency control",
+                    "error recovery",
+                    "scalability limits",
                 ]
-                aspect = mcq_aspects[(question_index + variation_seed) % len(mcq_aspects)]
+                aspect = rng.choice(mcq_aspects)
                 q_text = f"{stem} {scenario}? {var_token} (Focus: {aspect.title()})"
 
                 options_by_aspect = {
@@ -159,6 +172,42 @@ class QuestionGenerator:
                             f"Mute all production alerts during active system outages.",
                         ],
                     },
+                    "security isolation": {
+                        "correct": f"Enforce strict tenant authorization bounds and encrypt sensitive data payloads for '{concept_id}'.",
+                        "distractors": [
+                            f"Grant unrestricted root permissions to all incoming API calls.",
+                            f"Disable SSL/TLS encryption for internal service communications.",
+                            f"Store API secrets in unencrypted client-side web storage.",
+                            f"Bypass access tokens when performing administrative updates.",
+                        ],
+                    },
+                    "concurrency control": {
+                        "correct": f"Use optimistic locking or mutex synchronization to prevent data races on '{concept_id}'.",
+                        "distractors": [
+                            f"Allow uncoordinated write access across shared memory pointers.",
+                            f"Disable thread locks during peak execution periods.",
+                            f"Ignore data race warnings in concurrent worker loops.",
+                            f"Execute non-atomic read-modify-write state updates.",
+                        ],
+                    },
+                    "error recovery": {
+                        "correct": f"Implement exponential backoff retries with circuit breaker pattern for '{concept_id}'.",
+                        "distractors": [
+                            f"Infinitely retry failing requests without backoff delays.",
+                            f"Crash the host process immediately upon network timeout.",
+                            f"Ignore failed API calls and return empty null payloads.",
+                            f"Log errors to standard error without triggering alert thresholds.",
+                        ],
+                    },
+                    "scalability limits": {
+                        "correct": f"Partition state shards and implement horizontal worker scaling for '{concept_id}'.",
+                        "distractors": [
+                            f"Consolidate all system state into a single unindexed database table.",
+                            f"Disable connection pooling and open new socket per request.",
+                            f"Rely exclusively on vertical CPU scaling for peak workloads.",
+                            f"Hardcode maximum worker limits to single-threaded capacity.",
+                        ],
+                    },
                 }
 
                 asp_data = options_by_aspect[aspect]
@@ -192,7 +241,25 @@ class QuestionGenerator:
                     "explanation": explanation,
                 }
             else:
-                q_text = f"Explain how to implement and troubleshoot '{concept_id}' {scenario}. What steps ensure correctness? {var_token} (Depth: {difficulty.title()})"
+                open_ended_stems = [
+                    f"Explain how to implement and troubleshoot '{concept_id}'",
+                    f"Describe the architecture and data integrity checks required for '{concept_id}'",
+                    f"Detail the step-by-step failure recovery and rollback mechanism for '{concept_id}'",
+                    f"Analyze the performance bottlenecks and scaling strategies associated with '{concept_id}'",
+                    f"Outline the security controls and access boundaries necessary when operating '{concept_id}'",
+                    f"How would you refactor a legacy implementation to safely incorporate '{concept_id}'",
+                    f"Design an automated testing and validation harness to verify '{concept_id}'",
+                    f"Compare the tradeoffs of alternative design patterns versus '{concept_id}'",
+                    f"What telemetry indicators and logging patterns should be configured for '{concept_id}'",
+                    f"Detail the end-to-end event lifecycle and state transitions when executing '{concept_id}'",
+                    f"How would you handle unexpected network partitions and split-brain scenarios when running '{concept_id}'",
+                    f"Formulate a zero-downtime migration plan for updating schemas dependent on '{concept_id}'",
+                    f"Explain the memory management and garbage collection impact of using '{concept_id}'",
+                    f"Describe how concurrency locks and optimistic transactions preserve state in '{concept_id}'",
+                    f"Propose an SLA monitoring strategy and SLO alert threshold for services using '{concept_id}'",
+                ]
+                oe_stem = rng.choice(open_ended_stems)
+                q_text = f"{oe_stem} {scenario}. What steps ensure correctness? {var_token} (Depth: {difficulty.title()})"
                 raw_json = {
                     "question_type": "open_ended",
                     "question_text": q_text,
@@ -200,7 +267,7 @@ class QuestionGenerator:
                     "correct_answer": f"Key criteria: Detail step-by-step execution for {concept_id}, scenario constraints ({scenario}), validation rules, and error recovery.",
                     "concept_id": concept_id,
                     "difficulty": difficulty,
-                    "explanation": f"A complete response must address {concept_id} mechanism, scenario tradeoffs, and edge case recovery.",
+                    "explanation": f"Open-ended grounded evaluation assessing synthesis of {concept_id} under {scenario}.",
                 }
 
             raw_text = json.dumps(raw_json)

@@ -28,15 +28,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password: string): Promise<UserProfile> => {
-    const data = await authService.login(email, password);
-    setUser(data.user);
-    return data.user;
+    setIsLoading(true);
+    try {
+      const data = await authService.login(email, password);
+      setUser(data.user);
+      return data.user;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const signup = async (email: string, password: string, fullName: string): Promise<UserProfile> => {
-    const data = await authService.signup(email, password, fullName);
-    setUser(data.user);
-    return data.user;
+    setIsLoading(true);
+    try {
+      const data = await authService.signup(email, password, fullName);
+      setUser(data.user);
+      return data.user;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const logout = async () => {

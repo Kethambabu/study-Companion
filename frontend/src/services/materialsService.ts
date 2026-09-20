@@ -1,5 +1,6 @@
 import { authService } from "./authService";
 import { buildUrl, parseApiResponse } from "@/lib/apiClient";
+import { fetchWithCache, invalidateCache } from "./apiCache";
 
 export interface MaterialItem {
   id: string;
@@ -60,22 +61,29 @@ export const materialsService = {
     page = 1,
     limit = 20
   ): Promise<PaginatedMaterials> {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (search) params.append("search", search);
+    const key = `materials:${projectId || ""}:${search || ""}:${page}:${limit}`;
+    return fetchWithCache(
+      key,
+      async () => {
+        const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (search) params.append("search", search);
 
-    const path = projectId
-      ? `/api/v1/projects/${projectId}/materials?${params.toString()}`
-      : `/api/v1/materials?${params.toString()}`;
+        const path = projectId
+          ? `/api/v1/projects/${projectId}/materials?${params.toString()}`
+          : `/api/v1/materials?${params.toString()}`;
 
-    const response = await fetch(buildUrl(path), {
-      headers: { ...authService.getAuthHeaders() },
-    });
+        const response = await fetch(buildUrl(path), {
+          headers: { ...authService.getAuthHeaders() },
+        });
 
-    const result = await parseApiResponse<PaginatedMaterials>(response, "Failed to fetch materials");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to fetch materials.");
-    }
-    return result.data;
+        const result = await parseApiResponse<PaginatedMaterials>(response, "Failed to fetch materials");
+        if (!result.success || !result.data) {
+          throw new Error(result.error?.message || "Failed to fetch materials.");
+        }
+        return result.data;
+      },
+      10000
+    );
   },
 
   async uploadMaterial(
@@ -105,6 +113,7 @@ export const materialsService = {
         try {
           const result = JSON.parse(xhr.responseText);
           if (xhr.status >= 200 && xhr.status < 300 && result.success && result.data) {
+            invalidateCache("materials:");
             resolve(result.data);
           } else {
             reject(new Error(result?.error?.message || result?.detail || "Material upload failed."));
@@ -123,15 +132,21 @@ export const materialsService = {
   },
 
   async getMaterial(materialId: string): Promise<MaterialItem> {
-    const response = await fetch(buildUrl(`/api/v1/materials/${materialId}`), {
-      headers: { ...authService.getAuthHeaders() },
-    });
+    return fetchWithCache(
+      `material:${materialId}`,
+      async () => {
+        const response = await fetch(buildUrl(`/api/v1/materials/${materialId}`), {
+          headers: { ...authService.getAuthHeaders() },
+        });
 
-    const result = await parseApiResponse<MaterialItem>(response, "Failed to fetch material details");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to fetch material details.");
-    }
-    return result.data;
+        const result = await parseApiResponse<MaterialItem>(response, "Failed to fetch material details");
+        if (!result.success || !result.data) {
+          throw new Error(result.error?.message || "Failed to fetch material details.");
+        }
+        return result.data;
+      },
+      10000
+    );
   },
 
   async getMaterialPages(
@@ -139,16 +154,22 @@ export const materialsService = {
     page = 1,
     limit = 50
   ): Promise<PaginatedMaterialPages> {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    const response = await fetch(buildUrl(`/api/v1/materials/${materialId}/pages?${params.toString()}`), {
-      headers: { ...authService.getAuthHeaders() },
-    });
+    return fetchWithCache(
+      `material_pages:${materialId}:${page}:${limit}`,
+      async () => {
+        const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+        const response = await fetch(buildUrl(`/api/v1/materials/${materialId}/pages?${params.toString()}`), {
+          headers: { ...authService.getAuthHeaders() },
+        });
 
-    const result = await parseApiResponse<PaginatedMaterialPages>(response, "Failed to fetch material pages");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to fetch material pages.");
-    }
-    return result.data;
+        const result = await parseApiResponse<PaginatedMaterialPages>(response, "Failed to fetch material pages");
+        if (!result.success || !result.data) {
+          throw new Error(result.error?.message || "Failed to fetch material pages.");
+        }
+        return result.data;
+      },
+      30000
+    );
   },
 
   async retryMaterial(materialId: string): Promise<MaterialItem> {
@@ -161,7 +182,8 @@ export const materialsService = {
     if (!result.success || !result.data) {
       throw new Error(result.error?.message || "Failed to retry material processing.");
     }
+    invalidateCache("materials:");
+    invalidateCache(`material:${materialId}`);
     return result.data;
   },
 };
-

@@ -34,13 +34,39 @@ class MockLLMProvider(LLMProvider):
         mat_words = set(re.findall(r"\w+", study_material.lower()))
         overlap_count = len(user_words.intersection(mat_words))
 
-        has_material = bool(study_material and study_material != "[NO STUDY MATERIAL RETRIEVED]" and "[NO STUDY MATERIAL RETRIEVED]" not in study_material and overlap_count >= 1)
+        has_material = bool(study_material and study_material != "[NO STUDY MATERIAL RETRIEVED]" and "[NO STUDY MATERIAL RETRIEVED]" not in study_material)
         confidence = "grounded" if has_material else "insufficient_evidence"
         conf_score = 0.95 if has_material else 0.30
         ev_count = 1 if has_material else 0
         citations = []
 
-        if "vector space" in user_lower:
+        if "enjoy sport" in user_lower or "next topic" in user_lower or "syllabus" in user_lower or "continue syllabus" in user_lower or "teach current topic" in user_lower:
+            content = (
+                "### 📘 Sequential Syllabus Journey: Next Topic\n\n"
+                "Following **'EnjoySport'** (Concept Learning Task) in Unit I of your Machine Learning project materials, the next sequential topic is:\n\n"
+                "### **2. Find-S Algorithm & Candidate Elimination (Version Spaces)**\n\n"
+                "#### **Key Concepts & Step-by-Step Guidance:**\n"
+                "1. **Find-S Algorithm**: Finds the *most specific hypothesis* consistent with all positive training instances.\n"
+                "   • Starts with the most specific hypothesis \\(h = \\langle \\emptyset, \\emptyset, \\dots, \\emptyset \\rangle\\).\n"
+                "   • For each positive instance \\(x\\), generalizes attributes in \\(h\\) that are not satisfied by \\(x\\).\n"
+                "2. **Candidate Elimination Algorithm**: Computes the entire **Version Space** bounded by:\n"
+                "   • **General Boundary (G)**: The set of maximally general hypotheses.\n"
+                "   • **Specific Boundary (S)**: The set of maximally specific hypotheses.\n"
+                "3. **Inductive Bias**: The explicit set of assumptions used by the learner to predict outputs for unseen instances.\n\n"
+                "Would you like to explore code examples for Find-S, solve a practice problem, or proceed to Decision Trees?"
+            )
+            confidence = "grounded"
+            conf_score = 0.98
+            citations = [
+                {
+                    "citation_id": "[1]",
+                    "document_title": "Machine Learning Syllabus & Course Materials",
+                    "file_name": "machine_learning.pdf",
+                    "page_number": 1,
+                    "excerpt": study_material[:150] if study_material else "Unit I: Concept Learning, EnjoySport, Find-S, Candidate-Elimination Algorithm.",
+                }
+            ]
+        elif "vector space" in user_lower:
             content = (
                 "A **Vector Space** (or linear space) is a fundamental mathematical structure in linear algebra and machine learning.\n\n"
                 "### Core Properties:\n"

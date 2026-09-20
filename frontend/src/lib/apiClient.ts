@@ -49,7 +49,15 @@ export async function parseApiResponse<T>(
   }
 
   if (result && typeof result === "object") {
-    return result as ApiResponse<T>;
+    // Backend wraps responses as { success: true, data: ... }
+    if ("success" in result && "data" in result) {
+      return result as ApiResponse<T>;
+    }
+    // For endpoints that return raw objects (not wrapped)
+    return {
+      success: true,
+      data: result as T,
+    } as unknown as ApiResponse<T>;
   }
 
   throw new Error(`${fallbackError}: Server returned an empty or invalid response.`);

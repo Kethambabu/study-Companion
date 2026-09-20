@@ -198,39 +198,51 @@ async def seed_demo_data(db: AsyncSession | None = None, include_demo_spaces: bo
     now = datetime.now(UTC)
     email_to_id: dict[str, uuid.UUID] = {}
 
+    # Pre-fetch existing DB entities in 4 batch queries to avoid N+1 queries over remote DB
+    db_profiles: dict[str, Profile] = {}
+    db_spaces: dict[uuid.UUID, Space] = {}
+    db_projects: dict[uuid.UUID, Project] = {}
+    db_materials: dict[uuid.UUID, Material] = {}
+
+    if db is not None:
+        try:
+            p_res = await db.execute(select(Profile))
+            for p in p_res.scalars().all():
+                db_profiles[p.email.lower().strip()] = p
+
+            sp_res = await db.execute(select(Space))
+            for sp in sp_res.scalars().all():
+                db_spaces[sp.id] = sp
+
+            pj_res = await db.execute(select(Project))
+            for pj in pj_res.scalars().all():
+                db_projects[pj.id] = pj
+
+            mat_res = await db.execute(select(Material))
+            for m in mat_res.scalars().all():
+                db_materials[m.id] = m
+        except Exception as e:
+            logger.warning(f"Error pre-fetching DB seed state: {e}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
     # 1. Seed Profiles & In-Memory Users
+    new_profiles = False
     for u_def in DEMO_USERS:
         u_id = u_def["id"]
         email = u_def["email"].lower().strip()
         pwd_hash = hash_password(u_def["password"])
 
-        profile = None
-        if db is not None:
-            try:
-                existing_stmt = select(Profile).where(Profile.email == email)
-                existing_res = await db.execute(existing_stmt)
-                existing_prof = existing_res.scalar_one_or_none()
-                if existing_prof:
-                    u_id = existing_prof.id
-                    existing_prof.password_hash = pwd_hash
-                    existing_prof.full_name = u_def["full_name"]
-                    existing_prof.role = u_def["role"]
-                    profile = existing_prof
-                else:
-                    profile = Profile(
-                        id=u_id,
-                        email=email,
-                        full_name=u_def["full_name"],
-                        password_hash=pwd_hash,
-                        role=u_def["role"],
-                        created_at=now,
-                        updated_at=now,
-                    )
-                    db.add(profile)
-            except Exception as e:
-                logger.warning(f"Could not check/seed DB profile {email}: {e}")
-
-        if profile is None:
+        existing_prof = db_profiles.get(email)
+        if existing_prof:
+            u_id = existing_prof.id
+            existing_prof.password_hash = pwd_hash
+            existing_prof.full_name = u_def["full_name"]
+            existing_prof.role = u_def["role"]
+            profile = existing_prof
+        else:
             profile = Profile(
                 id=u_id,
                 email=email,
@@ -240,19 +252,20 @@ async def seed_demo_data(db: AsyncSession | None = None, include_demo_spaces: bo
                 created_at=now,
                 updated_at=now,
             )
+            if db is not None:
+                db.add(profile)
+                new_profiles = True
 
         email_to_id[email] = u_id
         _IN_MEMORY_USERS[email] = {"user_id": u_id, "hash": pwd_hash}
         _IN_MEMORY_PROFILES[str(u_id)] = profile
 
-    # Seed alias studenta@example.com pointing directly to Student A's primary user ID
     studenta_id = email_to_id.get("varshitha@example.com", uuid.UUID("22222222-2222-2222-2222-222222222222"))
     studenta_email = "studenta@example.com"
     pwd_hash = hash_password(DEFAULT_PASSWORD)
     _IN_MEMORY_USERS[studenta_email] = {"user_id": studenta_id, "hash": pwd_hash}
 
-    # Commit users first so foreign keys for spaces will be valid!
-    if db is not None:
+    if db is not None and new_profiles:
         try:
             await db.commit()
             logger.info("Successfully committed demo profiles to DB.")
@@ -262,6 +275,7 @@ async def seed_demo_data(db: AsyncSession | None = None, include_demo_spaces: bo
 
     # 2. Seed Spaces, Members, Projects, and Materials
     spaces_to_seed = DEFAULT_DEMO_SPACES if include_demo_spaces else []
+    new_entities = False
     for s_def in spaces_to_seed:
         sp_id = s_def["id"]
         original_owner = s_def["owner_id"]
@@ -273,63 +287,63 @@ async def seed_demo_data(db: AsyncSession | None = None, include_demo_spaces: bo
         elif original_owner == uuid.UUID("44444444-4444-4444-4444-444444444444"):
             owner_id = email_to_id.get("studentc@example.com", original_owner)
 
-        space = Space(
-            id=sp_id,
-            name=s_def["name"],
-            slug=s_def["slug"],
-            description=s_def["description"],
-            visual_metadata=s_def["visual_metadata"],
-            owner_id=owner_id,
-            created_at=now,
-            updated_at=now,
-        )
-
-        member = SpaceMember(
-            id=uuid.uuid4(),
-            space_id=sp_id,
-            user_id=owner_id,
-            role="owner",
-            created_at=now,
-        )
+        space = db_spaces.get(sp_id)
+        if not space:
+            space = Space(
+                id=sp_id,
+                name=s_def["name"],
+                slug=s_def["slug"],
+                description=s_def["description"],
+                visual_metadata=s_def["visual_metadata"],
+                owner_id=owner_id,
+                created_at=now,
+                updated_at=now,
+            )
+            member = SpaceMember(
+                id=uuid.uuid4(),
+                space_id=sp_id,
+                user_id=owner_id,
+                role="owner",
+                created_at=now,
+            )
+            if db is not None:
+                db.add(space)
+                db.add(member)
+                new_entities = True
+        else:
+            member = SpaceMember(
+                id=uuid.uuid4(),
+                space_id=sp_id,
+                user_id=owner_id,
+                role="owner",
+                created_at=now,
+            )
 
         _IN_MEMORY_SPACES[str(sp_id)] = space
         _IN_MEMORY_MEMBERS[str(sp_id)] = [member]
 
-        if db is not None:
-            try:
-                existing_sp = await db.execute(select(Space).where(or_(Space.id == sp_id, Space.slug == s_def["slug"])))
-                if not existing_sp.scalar_one_or_none():
-                    db.add(space)
-                    db.add(member)
-            except Exception as e:
-                logger.warning(f"Could not seed DB space {s_def['name']}: {e}")
-
-        # Projects for this space
         for p_def in s_def.get("projects", []):
             p_id = p_def["id"]
-            proj = Project(
-                id=p_id,
-                space_id=sp_id,
-                owner_id=owner_id,
-                title=p_def["name"],
-                name=p_def["name"],
-                description=p_def["description"],
-                learning_goal=p_def["learning_goal"],
-                status=p_def["status"],
-                created_at=now,
-                updated_at=now,
-            )
+            proj = db_projects.get(p_id)
+            if not proj:
+                proj = Project(
+                    id=p_id,
+                    space_id=sp_id,
+                    owner_id=owner_id,
+                    title=p_def["name"],
+                    name=p_def["name"],
+                    description=p_def["description"],
+                    learning_goal=p_def["learning_goal"],
+                    status=p_def["status"],
+                    created_at=now,
+                    updated_at=now,
+                )
+                if db is not None:
+                    db.add(proj)
+                    new_entities = True
+
             _IN_MEMORY_PROJECTS[str(p_id)] = proj
 
-            if db is not None:
-                try:
-                    existing_pj = await db.execute(select(Project).where(Project.id == p_id))
-                    if not existing_pj.scalar_one_or_none():
-                        db.add(proj)
-                except Exception as e:
-                    logger.warning(f"Could not seed DB project {p_def['name']}: {e}")
-
-            # Materials for this project
             for mat_name in p_def.get("materials", []):
                 m_id = uuid.uuid4()
                 mat = Material(
@@ -347,15 +361,8 @@ async def seed_demo_data(db: AsyncSession | None = None, include_demo_spaces: bo
                     updated_at=now,
                 )
                 _IN_MEMORY_MATERIALS[str(m_id)] = mat
-                if db is not None:
-                    try:
-                        existing_mat = await db.execute(select(Material).where(Material.id == m_id))
-                        if not existing_mat.scalar_one_or_none():
-                            db.add(mat)
-                    except Exception as e:
-                        logger.warning(f"Could not seed DB material {mat_name}: {e}")
 
-    if db is not None:
+    if db is not None and new_entities:
         try:
             await db.commit()
             logger.info("Database successfully committed seed demo spaces & projects.")

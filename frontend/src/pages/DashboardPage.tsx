@@ -36,20 +36,23 @@ export const DashboardPage: React.FC = () => {
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
 
   const loadDashboardData = async () => {
-    setLoading(true);
     setError(null);
     try {
-      const [spacesRes, projectsRes, analyticsRes] = await Promise.all([
-        spacesService.listSpaces(undefined, 1, 10),
-        projectsService.listProjects(undefined, undefined, undefined, 1, 10),
-        analyticsService.getStudentGlobalAnalytics().catch(() => null),
+      const [spacesRes, projectsRes] = await Promise.all([
+        spacesService.listSpaces(),
+        projectsService.listProjects(),
       ]);
-      setSpaces(spacesRes.items);
-      setProjects(projectsRes.items);
-      setAnalytics(analyticsRes);
+      setSpaces(spacesRes.items || []);
+      setProjects(projectsRes.items || []);
+      setLoading(false);
+
+      // Non-blocking background fetch for analytics telemetry
+      analyticsService
+        .getStudentGlobalAnalytics()
+        .then((analyticsRes) => setAnalytics(analyticsRes))
+        .catch(() => setAnalytics(null));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard data.");
-    } finally {
       setLoading(false);
     }
   };
@@ -65,7 +68,7 @@ export const DashboardPage: React.FC = () => {
     return "Good evening";
   };
 
-  if (loading) {
+  if (loading && spaces.length === 0 && projects.length === 0) {
     return <LoadingState message="Loading your personalized learning dashboard..." />;
   }
 

@@ -1,7 +1,9 @@
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import make_transient
 
 from app.core.exceptions import EntityNotFoundError
 from app.modules.events.publisher import DomainEventPublisher
@@ -101,9 +103,20 @@ class ProjectsService:
                 res = await self.db.execute(stmt)
                 db_projs = res.scalars().all()
                 for p in db_projs:
+                    # Expunge from session so a later rollback can't expire these attributes.
+                    # make_transient() removes the instance from the identity map entirely,
+                    # preventing any lazy-load attempts on the async engine.
+                    try:
+                        self.db.expunge(p)
+                        make_transient(p)
+                    except Exception:
+                        pass
                     matched_map[str(p.id)] = p
             except Exception:
-                pass
+                try:
+                    await self.db.rollback()
+                except Exception:
+                    pass
 
         matched: list[Project] = []
         for proj in matched_map.values():
@@ -127,7 +140,73 @@ class ProjectsService:
         end = start + limit
         paged_items = matched[start:end]
 
-        items = [await self._to_response_async(p) for p in paged_items]
+        # Batch fetch material counts and concept masteries for paged_items in 2 queries instead of N+1
+        mat_counts: dict[uuid.UUID, int] = {}
+        mastery_avgs: dict[uuid.UUID, float] = {}
+
+        if self.db is not None and paged_items:
+            try:
+                from sqlalchemy import func, select
+                from app.modules.materials.models import Material
+                from app.modules.mastery.models import ConceptMastery
+
+                p_ids = [p.id for p in paged_items]
+
+                # Query 1: Count materials per project
+                m_stmt = (
+                    select(Material.project_id, func.count(Material.id))
+                    .where(Material.project_id.in_(p_ids))
+                    .group_by(Material.project_id)
+                )
+                m_res = await self.db.execute(m_stmt)
+                for pid, cnt in m_res.all():
+                    mat_counts[pid] = cnt
+
+                # Query 2: Average concept mastery per project
+                mast_stmt = (
+                    select(ConceptMastery.project_id, func.avg(ConceptMastery.mastery_score))
+                    .where(ConceptMastery.project_id.in_(p_ids))
+                    .group_by(ConceptMastery.project_id)
+                )
+                mast_res = await self.db.execute(mast_stmt)
+                for pid, avg_score in mast_res.all():
+                    if avg_score is not None:
+                        mastery_avgs[pid] = float(avg_score)
+            except Exception:
+                await self.db.rollback()
+
+        from app.modules.materials.service import _IN_MEMORY_MATERIALS
+        items: list[ProjectResponse] = []
+        for p in paged_items:
+            m_cnt = mat_counts.get(p.id, 0)
+            in_mem_cnt = sum(1 for m in _IN_MEMORY_MATERIALS.values() if getattr(m, "project_id", None) == p.id)
+            final_m_cnt = max(m_cnt, in_mem_cnt)
+
+            m_avg = mastery_avgs.get(p.id)
+            if m_avg is not None:
+                prog_pct = int(round(m_avg * 100))
+            elif final_m_cnt > 0:
+                prog_pct = 25
+            else:
+                prog_pct = 0
+
+            items.append(
+                ProjectResponse(
+                    id=p.id,
+                    space_id=p.space_id,
+                    owner_id=p.owner_id,
+                    name=p.name,
+                    description=p.description,
+                    learning_goal=p.learning_goal,
+                    status=p.status,
+                    materials_count=final_m_cnt,
+                    progress=prog_pct,
+                    created_at=p.created_at,
+                    updated_at=p.updated_at,
+                    archived_at=getattr(p, "archived_at", None),
+                )
+            )
+
         return PaginatedProjectsResponse(
             items=items,
             total=total,
@@ -136,20 +215,23 @@ class ProjectsService:
         )
 
     async def get_project_model(self, project_id: uuid.UUID) -> Project:
-        from sqlalchemy import select
-        proj = None
+        proj = _IN_MEMORY_PROJECTS.get(str(project_id))
+        if proj:
+            return proj
+
         if self.db is not None:
             try:
+                from sqlalchemy import select
                 stmt = select(Project).where(Project.id == project_id)
                 res = await self.db.execute(stmt)
-                proj = res.scalar_one_or_none()
+                db_proj = res.scalar_one_or_none()
+                if db_proj:
+                    _IN_MEMORY_PROJECTS[str(project_id)] = db_proj
+                    return db_proj
             except Exception:
-                pass
-        if not proj:
-            proj = _IN_MEMORY_PROJECTS.get(str(project_id))
-        if not proj:
-            raise EntityNotFoundError("Project", str(project_id))
-        return proj
+                await self.db.rollback()
+
+        raise EntityNotFoundError("Project", str(project_id))
 
     async def get_project(self, project_id: uuid.UUID) -> ProjectResponse:
         proj = await self.get_project_model(project_id)
@@ -212,12 +294,38 @@ class ProjectsService:
         return await self._to_response_async(proj)
 
     async def _to_response_async(self, proj: Project) -> ProjectResponse:
+        # If the ORM instance is still attached to a session, expunge + make_transient
+        # before touching any attributes to prevent lazy-load on async engine.
+        try:
+            state = sa_inspect(proj)
+            if state.session_id is not None and self.db is not None:
+                try:
+                    self.db.expunge(proj)
+                    make_transient(proj)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Snapshot all scalar fields from __dict__ first (avoids any ORM descriptor call)
+        _d = proj.__dict__
+        proj_id = _d.get("id") or proj.id
+        proj_space_id = _d.get("space_id") or proj.space_id
+        proj_owner_id = _d.get("owner_id") or proj.owner_id
+        proj_name = _d.get("name") or proj.name
+        proj_description = _d.get("description", None)
+        proj_learning_goal = _d.get("learning_goal", None)
+        proj_status = _d.get("status") or proj.status
+        proj_created_at = _d.get("created_at") or proj.created_at
+        proj_updated_at = _d.get("updated_at") or proj.updated_at
+        proj_archived_at = _d.get("archived_at", None)
+
         mats_count = 0
         from app.modules.materials.service import _IN_MEMORY_MATERIALS
         for m in list(_IN_MEMORY_MATERIALS.values()):
             try:
                 m_pid = m.__dict__.get("project_id")
-                if m_pid == proj.id:
+                if m_pid == proj_id:
                     mats_count += 1
             except Exception:
                 pass
@@ -226,29 +334,29 @@ class ProjectsService:
             try:
                 from sqlalchemy import func, select
                 from app.modules.materials.models import Material
-                stmt = select(func.count(Material.id)).where(Material.project_id == proj.id)
+                stmt = select(func.count(Material.id)).where(Material.project_id == proj_id)
                 res = await self.db.execute(stmt)
                 db_c = res.scalar() or 0
                 mats_count = max(mats_count, db_c)
             except Exception:
-                pass
+                await self.db.rollback()
 
         progress_pct = 0
         if mats_count > 0:
             try:
                 from app.modules.mastery.service import _IN_MEMORY_MASTERY
-                masteries = [m for m in _IN_MEMORY_MASTERY.values() if str(m.project_id) == str(proj.id)]
+                masteries = [m for m in _IN_MEMORY_MASTERY.values() if str(m.project_id) == str(proj_id)]
                 if self.db is not None:
                     try:
                         from sqlalchemy import select
                         from app.modules.mastery.models import ConceptMastery
-                        stmt = select(ConceptMastery).where(ConceptMastery.project_id == proj.id)
+                        stmt = select(ConceptMastery).where(ConceptMastery.project_id == proj_id)
                         res = await self.db.execute(stmt)
                         db_m = list(res.scalars().all())
                         if db_m:
                             masteries = db_m
                     except Exception:
-                        pass
+                        await self.db.rollback()
                 if masteries:
                     avg_m = sum(float(m.mastery_score) for m in masteries) / len(masteries)
                     progress_pct = int(round(avg_m * 100))
@@ -258,18 +366,18 @@ class ProjectsService:
                 progress_pct = 0
 
         return ProjectResponse(
-            id=proj.id,
-            space_id=proj.space_id,
-            owner_id=proj.owner_id,
-            name=proj.name,
-            description=proj.description,
-            learning_goal=proj.learning_goal,
-            status=proj.status,
+            id=proj_id,
+            space_id=proj_space_id,
+            owner_id=proj_owner_id,
+            name=proj_name,
+            description=proj_description,
+            learning_goal=proj_learning_goal,
+            status=proj_status,
             materials_count=mats_count,
             progress=progress_pct,
-            created_at=proj.created_at,
-            updated_at=proj.updated_at,
-            archived_at=proj.archived_at,
+            created_at=proj_created_at,
+            updated_at=proj_updated_at,
+            archived_at=proj_archived_at,
         )
 
     def _to_response(self, proj: Project) -> ProjectResponse:

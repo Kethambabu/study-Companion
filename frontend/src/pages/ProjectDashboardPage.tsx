@@ -54,7 +54,10 @@ export const ProjectDashboardPage: React.FC = () => {
 
   const loadData = useCallback(async () => {
     if (!projectId) return;
-    setLoading(true);
+    setProject((prev) => {
+      if (!prev) setLoading(true);
+      return prev;
+    });
     setError(null);
     try {
       const [proj, matsRes, growthRes] = await Promise.all([
@@ -490,6 +493,20 @@ export const ProjectDashboardPage: React.FC = () => {
             className="px-4 py-2 bg-amber-600 text-white text-xs font-bold rounded-xl"
           >
             Start Quiz Session
+          </button>
+        </div>
+      )}
+
+      {activeTab === "mastery" && (
+        <div className="p-6 glass-panel rounded-2xl border border-slate-800 text-center space-y-3">
+          <Layers className="w-10 h-10 text-indigo-400 mx-auto" />
+          <h3 className="text-base font-bold text-slate-100">Concept Mastery</h3>
+          <p className="text-xs text-slate-400">View real-time concept scores, evidence explainability, and mastery levels.</p>
+          <button
+            onClick={() => navigate("/mastery")}
+            className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl"
+          >
+            Open Concept Mastery Hub
           </button>
         </div>
       )}

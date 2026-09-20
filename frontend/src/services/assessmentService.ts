@@ -208,14 +208,16 @@ export const assessmentService = {
   },
 
   getLearningProgress: async (projectId: string): Promise<LearningProgressItem> => {
-    const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/quizzes/learning-progress`), {
-      headers: { ...authService.getAuthHeaders() },
-    });
-    const result = await parseApiResponse<LearningProgressItem>(res, "Failed to fetch learning progress");
-    if (!result.success || !result.data) {
-      throw new Error(result.error?.message || "Failed to fetch learning progress.");
-    }
-    return result.data;
+    return fetchWithCache(`progress:${projectId}`, async () => {
+      const res = await fetch(buildUrl(`/api/v1/projects/${projectId}/quizzes/learning-progress`), {
+        headers: { ...authService.getAuthHeaders() },
+      });
+      const result = await parseApiResponse<LearningProgressItem>(res, "Failed to fetch learning progress");
+      if (!result.success || !result.data) {
+        throw new Error(result.error?.message || "Failed to fetch learning progress.");
+      }
+      return result.data;
+    }, 15000);
   },
 };
 

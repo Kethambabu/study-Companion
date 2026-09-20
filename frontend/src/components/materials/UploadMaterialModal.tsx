@@ -6,6 +6,7 @@ import { projectsService, ProjectItem } from "@/services/projectsService";
 interface UploadMaterialModalProps {
   isOpen: boolean;
   defaultProjectId?: string;
+  availableProjects?: ProjectItem[];
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -16,10 +17,11 @@ const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
 export const UploadMaterialModal: React.FC<UploadMaterialModalProps> = ({
   isOpen,
   defaultProjectId,
+  availableProjects,
   onClose,
   onSuccess,
 }) => {
-  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [projects, setProjects] = useState<ProjectItem[]>(availableProjects || []);
   const [selectedProjectId, setSelectedProjectId] = useState(defaultProjectId || "");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -28,20 +30,30 @@ export const UploadMaterialModal: React.FC<UploadMaterialModalProps> = ({
   const [dragActive, setDragActive] = useState(false);
 
   useEffect(() => {
-    if (isOpen && !defaultProjectId) {
+    if (!isOpen) return;
+
+    if (defaultProjectId) {
+      setSelectedProjectId(defaultProjectId);
+    }
+
+    if (availableProjects && availableProjects.length > 0) {
+      setProjects(availableProjects);
+      if (!selectedProjectId && !defaultProjectId) {
+        setSelectedProjectId(availableProjects[0].id);
+      }
+    } else {
       projectsService
-        .listProjects(undefined, "active", undefined, 1, 50)
+        .listProjects(undefined, "active", undefined, 1, 100)
         .then((res) => {
-          setProjects(res.items);
-          if (res.items.length > 0 && !selectedProjectId) {
-            setSelectedProjectId(res.items[0].id);
+          const items = res.items || [];
+          setProjects(items);
+          if (items.length > 0 && !selectedProjectId && !defaultProjectId) {
+            setSelectedProjectId(items[0].id);
           }
         })
         .catch(() => setError("Failed to load target projects."));
-    } else if (defaultProjectId) {
-      setSelectedProjectId(defaultProjectId);
     }
-  }, [isOpen, defaultProjectId, selectedProjectId]);
+  }, [isOpen, defaultProjectId, availableProjects]);
 
   if (!isOpen) return null;
 
@@ -145,14 +157,20 @@ export const UploadMaterialModal: React.FC<UploadMaterialModalProps> = ({
                 value={selectedProjectId}
                 onChange={(e) => setSelectedProjectId(e.target.value)}
                 required
-                disabled={uploading}
-                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                disabled={uploading || projects.length === 0}
+                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm disabled:opacity-60"
               >
-                {projects.map((pj) => (
-                  <option key={pj.id} value={pj.id}>
-                    {pj.name}
+                {projects.length === 0 ? (
+                  <option value="" disabled>
+                    Loading active projects...
                   </option>
-                ))}
+                ) : (
+                  projects.map((pj) => (
+                    <option key={pj.id} value={pj.id}>
+                      {pj.name}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           )}
